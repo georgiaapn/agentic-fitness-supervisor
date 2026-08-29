@@ -1,0 +1,36 @@
+[project]
+name = "agentic-fitness-api"
+version = "0.1.0"
+description = "FastAPI backend for the Agentic Fitness Supervisor"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+  "pydantic-settings>=2.4.0",
+  "sqlalchemy>=2.0.0",
+  "psycopg[binary]>=3.2.0",
+  "langgraph>=0.2.0",
+  "langchain-core>=0.3.0",
+]
+
+[project.optional-dependencies]
+rag = [
+  "sentence-transformers>=3.0.0",
+]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.6.0",
+  "mypy>=1.11.0",
+]
+
+[build-system]
+requires = ["setuptools>=70.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

@@ -1,0 +1,17 @@
+{
+  "profile": "product-admin",
+  "sourceRoots": ["apps/web/app", "apps/web/components"],
+  "canonicalMap": "UX-CONTRACT.md",
+  "requiredCapabilities": ["Form", "Scrollbar", "Toast"],
+  "ownership": {
+    "Form": "native",
+    "Scrollbar": "global-css",
+    "Toast": "inline-status"
+  },
+  "requiredCommands": ["web-build", "api-syntax"],
+  "commands": {
+    "web-build": "npm --prefix apps/web run build",
+    "api-syntax": "python -m compileall apps/api/app"
+  }
+}
+
