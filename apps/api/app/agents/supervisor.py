@@ -1,4 +1,4 @@
-from app.schemas import RecoveryReport, SupervisorDirectives, UserProfile, WearableSnapshot
+from app.schemas import AgentName, RecoveryReport, SupervisorDirectives, UserProfile, WearableSnapshot
 
 
 def coordinate_day(
@@ -6,8 +6,8 @@ def coordinate_day(
     wearable: WearableSnapshot,
     recovery: RecoveryReport,
 ) -> SupervisorDirectives:
-    selected = ["trainer", "nutritionist"]
-    skipped: list[str] = []
+    selected: list[AgentName] = ["trainer", "nutritionist"]
+    skipped: list[AgentName] = []
 
     if wearable.pain_level >= 8:
         return SupervisorDirectives(
@@ -42,4 +42,3 @@ def coordinate_day(
             f"with readiness {recovery.readiness_score}."
         ),
     )
-
