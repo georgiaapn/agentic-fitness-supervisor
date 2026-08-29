@@ -156,3 +156,46 @@ class PlanVersion(Base):
     )
 
     run: Mapped[AgentRun] = relationship(back_populates="plan_versions")
+
+
+class KnowledgeDocument(Base):
+    __tablename__ = "knowledge_documents"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    collection: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(180), nullable=False)
+    source_uri: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    tags: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    chunks: Mapped[list["KnowledgeChunk"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
+
+
+class KnowledgeChunk(Base):
+    __tablename__ = "knowledge_chunks"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    document_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("knowledge_documents.id"),
+        nullable=False,
+        index=True,
+    )
+    collection: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(180), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    document: Mapped[KnowledgeDocument] = relationship(back_populates="chunks")

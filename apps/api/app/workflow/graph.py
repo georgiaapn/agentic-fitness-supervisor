@@ -21,7 +21,7 @@ def load_context_node(state: FitnessGraphState) -> FitnessGraphState:
 
 
 def recovery_node(state: FitnessGraphState) -> FitnessGraphState:
-    rag = RagService()
+    rag = RagService(state.get("db"))
     recovery = analyze_recovery(state["wearable"], rag)
     audit = [
         *state.get("audit", []),
@@ -58,13 +58,13 @@ def route_specialists(state: FitnessGraphState) -> list[SpecialistNode]:
 
 
 def trainer_node(state: FitnessGraphState) -> FitnessGraphState:
-    rag = RagService()
+    rag = RagService(state.get("db"))
     workout = create_workout_plan(state["profile"], state["wearable"], state["directives"], rag)
     return {"workout": workout}
 
 
 def nutritionist_node(state: FitnessGraphState) -> FitnessGraphState:
-    rag = RagService()
+    rag = RagService(state.get("db"))
     nutrition = create_nutrition_plan(state["profile"], state["directives"], rag)
     return {"nutrition": nutrition}
 
@@ -106,8 +106,11 @@ def build_fitness_graph():
 fitness_graph = build_fitness_graph()
 
 
-def run_morning_check_in(payload: MorningCheckInRequest) -> DailyBriefingResponse:
-    final_state = fitness_graph.invoke({"request": payload})
+def run_morning_check_in(
+    payload: MorningCheckInRequest,
+    db: object | None = None,
+) -> DailyBriefingResponse:
+    final_state = fitness_graph.invoke({"request": payload, "db": db})
 
     return DailyBriefingResponse(
         profile=final_state["profile"],

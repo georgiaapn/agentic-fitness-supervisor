@@ -110,3 +110,11 @@ class AgentRunSummary(BaseModel):
 
 class ProfileResponse(UserProfile):
     pass
+
+
+class KnowledgeChunkSummary(BaseModel):
+    id: str
+    collection: str
+    title: str
+    content: str
+    metadata: dict

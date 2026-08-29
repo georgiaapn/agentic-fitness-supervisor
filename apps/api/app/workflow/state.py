@@ -1,4 +1,4 @@
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from app.schemas import (
     DecisionAuditItem,
@@ -17,6 +17,7 @@ SpecialistNode = Literal["trainer_agent", "nutritionist_agent", "nutritionist_so
 
 class FitnessGraphState(TypedDict, total=False):
     request: MorningCheckInRequest
+    db: Any
     profile: UserProfile
     wearable: WearableSnapshot
     recovery: RecoveryReport

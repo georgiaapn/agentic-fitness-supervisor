@@ -8,10 +8,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db.init_db import init_db
-from app.db.models import AgentRun
-from app.db.session import get_db
-from app.schemas import AgentRunSummary, DailyBriefingResponse, MorningCheckInRequest, UserProfile
+from app.db.models import AgentRun, KnowledgeChunk
+from app.db.seed import seed_knowledge_base
+from app.db.session import SessionLocal, get_db
+from app.schemas import (
+    AgentRunSummary,
+    DailyBriefingResponse,
+    KnowledgeChunkSummary,
+    MorningCheckInRequest,
+    UserProfile,
+)
 from app.services.persistence import persist_daily_briefing
 from app.services.profiles import get_profile, upsert_profile
 from app.workflow.graph import run_morning_check_in
@@ -20,7 +26,8 @@ from app.workflow.graph import run_morning_check_in
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if settings.persistence_enabled:
-        init_db()
+        with SessionLocal() as db:
+            seed_knowledge_base(db)
     yield
 
 
@@ -58,7 +65,7 @@ def simulate_morning_check_in(
         if saved_profile is not None:
             payload = payload.model_copy(update={"profile": saved_profile})
 
-    briefing = run_morning_check_in(payload)
+    briefing = run_morning_check_in(payload, db if settings.persistence_enabled else None)
     if settings.persistence_enabled:
         persist_daily_briefing(db, payload, briefing)
     return briefing
@@ -108,4 +115,35 @@ def list_agent_runs(
             created_at=run.created_at.isoformat(),
         )
         for run in runs
+    ]
+
+
+@app.get("/api/knowledge-chunks", response_model=list[KnowledgeChunkSummary])
+def list_knowledge_chunks(
+    db: Annotated[Session, Depends(get_db)],
+    collection: str | None = None,
+    limit: int = 20,
+) -> list[KnowledgeChunkSummary]:
+    if not settings.persistence_enabled:
+        return []
+
+    statement = select(KnowledgeChunk).order_by(KnowledgeChunk.created_at.asc()).limit(min(limit, 100))
+    if collection is not None:
+        statement = (
+            select(KnowledgeChunk)
+            .where(KnowledgeChunk.collection == collection)
+            .order_by(KnowledgeChunk.created_at.asc())
+            .limit(min(limit, 100))
+        )
+
+    chunks = db.scalars(statement).all()
+    return [
+        KnowledgeChunkSummary(
+            id=str(chunk.id),
+            collection=chunk.collection,
+            title=chunk.title,
+            content=chunk.content,
+            metadata=chunk.metadata_,
+        )
+        for chunk in chunks
     ]
