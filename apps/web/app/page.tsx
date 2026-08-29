@@ -13,16 +13,23 @@ import {
   User
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type RecoveryStatus = "GREEN" | "YELLOW" | "RED";
 
 type DailyBriefing = {
   profile: {
+    user_id?: string;
     name: string;
     age: number;
+    gender?: string;
+    height_cm?: number;
+    weight_kg?: number;
     fitness_level: string;
     goal: string;
+    dietary_restrictions?: string[];
+    equipment_available?: string[];
+    injury_history?: string[];
   };
   wearable: {
     sleep_hours: number;
@@ -68,6 +75,8 @@ type DailyBriefing = {
   final_message: string;
 };
 
+type UserProfile = Required<DailyBriefing["profile"]>;
+
 const navItems: Array<{ label: string; icon: LucideIcon }> = [
   { label: "Daily briefing", icon: Gauge },
   { label: "Workout plan", icon: Dumbbell },
@@ -78,10 +87,17 @@ const navItems: Array<{ label: string; icon: LucideIcon }> = [
 
 const fallbackBriefing: DailyBriefing = {
   profile: {
+    user_id: "demo-user",
     name: "George",
     age: 31,
+    gender: "male",
+    height_cm: 178,
+    weight_kg: 82,
     fitness_level: "intermediate",
-    goal: "hypertrophy"
+    goal: "hypertrophy",
+    dietary_restrictions: ["no shellfish"],
+    equipment_available: ["barbell", "dumbbells", "bands"],
+    injury_history: ["occasional right knee irritation"]
   },
   wearable: {
     sleep_hours: 5,
@@ -151,8 +167,35 @@ const fallbackBriefing: DailyBriefing = {
 
 export default function Home() {
   const [briefing, setBriefing] = useState<DailyBriefing>(fallbackBriefing);
+  const [profile, setProfile] = useState<UserProfile>(normalizeProfile(fallbackBriefing.profile));
   const [runState, setRunState] = useState<"idle" | "running" | "completed" | "failed">("idle");
+  const [profileState, setProfileState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const [error, setError] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadProfile() {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+        const response = await fetch(`${apiUrl}/api/profile/demo-user`);
+        if (!response.ok) return;
+
+        const data = (await response.json()) as UserProfile;
+        if (!ignore) {
+          setProfile(normalizeProfile(data));
+        }
+      } catch {
+        // The fallback profile keeps the dashboard usable when the API is offline.
+      }
+    }
+
+    loadProfile();
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const statusTone = useMemo(() => {
     if (briefing.recovery.status === "RED") return "border-recovery text-recovery bg-[#FFF4F0]";
@@ -169,7 +212,7 @@ export default function Home() {
       const response = await fetch(`${apiUrl}/api/check-ins/simulate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({})
+        body: JSON.stringify({ profile })
       });
 
       if (!response.ok) {
@@ -178,10 +221,37 @@ export default function Home() {
 
       const data = (await response.json()) as DailyBriefing;
       setBriefing(data);
+      setProfile(normalizeProfile(data.profile));
       setRunState("completed");
     } catch (requestError) {
       setRunState("failed");
       setError(requestError instanceof Error ? requestError.message : "Unable to run check-in.");
+    }
+  }
+
+  async function saveProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setProfileState("saving");
+    setProfileError(null);
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+      const response = await fetch(`${apiUrl}/api/profile/${profile.user_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(profile)
+      });
+
+      if (!response.ok) {
+        throw new Error("Profile could not be saved.");
+      }
+
+      const data = (await response.json()) as UserProfile;
+      setProfile(normalizeProfile(data));
+      setProfileState("saved");
+    } catch (requestError) {
+      setProfileState("failed");
+      setProfileError(requestError instanceof Error ? requestError.message : "Unable to save profile.");
     }
   }
 
@@ -223,8 +293,7 @@ export default function Home() {
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <div className="rounded-control border border-border bg-panel px-3 py-2 text-sm text-slate">
-                {briefing.profile.name} · {briefing.profile.fitness_level} ·{" "}
-                {briefing.profile.goal.replace("_", " ")}
+                {profile.name} · {profile.fitness_level} · {profile.goal.replace("_", " ")}
               </div>
               <button
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-control bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#126961] disabled:opacity-70"
@@ -304,6 +373,104 @@ export default function Home() {
             <aside className="space-y-5">
               <section className="rounded-briefing border border-border bg-panel p-5">
                 <div className="flex items-center gap-2">
+                  <User size={19} className="text-primary" aria-hidden="true" />
+                  <h2 className="font-display text-lg font-semibold">Profile Settings</h2>
+                </div>
+                <form className="mt-4 space-y-3" noValidate onSubmit={saveProfile}>
+                  <label className="block text-sm font-medium text-ink">
+                    Name
+                    <input
+                      className="mt-1 w-full rounded-control border border-border bg-white px-3 py-2 text-sm text-ink"
+                      value={profile.name}
+                      onChange={(event) => setProfile({ ...profile, name: event.target.value })}
+                    />
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block text-sm font-medium text-ink">
+                      Age
+                      <input
+                        className="mt-1 w-full rounded-control border border-border bg-white px-3 py-2 text-sm text-ink"
+                        type="number"
+                        value={profile.age}
+                        onChange={(event) =>
+                          setProfile({ ...profile, age: Number(event.target.value) })
+                        }
+                      />
+                    </label>
+                    <label className="block text-sm font-medium text-ink">
+                      Weight
+                      <input
+                        className="mt-1 w-full rounded-control border border-border bg-white px-3 py-2 text-sm text-ink"
+                        type="number"
+                        value={profile.weight_kg}
+                        onChange={(event) =>
+                          setProfile({ ...profile, weight_kg: Number(event.target.value) })
+                        }
+                      />
+                    </label>
+                  </div>
+                  <label className="block text-sm font-medium text-ink">
+                    Goal
+                    <select
+                      className="mt-1 w-full rounded-control border border-border bg-white px-3 py-2 text-sm text-ink"
+                      value={profile.goal}
+                      onChange={(event) => setProfile({ ...profile, goal: event.target.value })}
+                    >
+                      <option value="hypertrophy">Hypertrophy</option>
+                      <option value="fat_loss">Fat loss</option>
+                      <option value="strength">Strength</option>
+                      <option value="general_fitness">General fitness</option>
+                    </select>
+                  </label>
+                  <label className="block text-sm font-medium text-ink">
+                    Fitness level
+                    <select
+                      className="mt-1 w-full rounded-control border border-border bg-white px-3 py-2 text-sm text-ink"
+                      value={profile.fitness_level}
+                      onChange={(event) =>
+                        setProfile({ ...profile, fitness_level: event.target.value })
+                      }
+                    >
+                      <option value="beginner">Beginner</option>
+                      <option value="intermediate">Intermediate</option>
+                      <option value="advanced">Advanced</option>
+                    </select>
+                  </label>
+                  <label className="block text-sm font-medium text-ink">
+                    Dietary restrictions
+                    <input
+                      className="mt-1 w-full rounded-control border border-border bg-white px-3 py-2 text-sm text-ink"
+                      value={profile.dietary_restrictions.join(", ")}
+                      onChange={(event) =>
+                        setProfile({
+                          ...profile,
+                          dietary_restrictions: splitCsv(event.target.value)
+                        })
+                      }
+                    />
+                  </label>
+                  {profileError ? (
+                    <p className="rounded-control border border-recovery bg-[#FFF4F0] px-3 py-2 text-sm text-recovery">
+                      {profileError}
+                    </p>
+                  ) : null}
+                  {profileState === "saved" ? (
+                    <p className="rounded-control border border-primary bg-[#EEF8F5] px-3 py-2 text-sm text-primary">
+                      Profile saved. The next check-in will use these settings.
+                    </p>
+                  ) : null}
+                  <button
+                    className="inline-flex min-h-10 w-full items-center justify-center rounded-control border border-primary px-4 py-2 text-sm font-semibold text-primary transition hover:bg-[#EEF8F5] disabled:opacity-70"
+                    disabled={profileState === "saving"}
+                    type="submit"
+                  >
+                    {profileState === "saving" ? "Saving profile..." : "Save profile"}
+                  </button>
+                </form>
+              </section>
+
+              <section className="rounded-briefing border border-border bg-panel p-5">
+                <div className="flex items-center gap-2">
                   <ShieldCheck size={19} className="text-primary" aria-hidden="true" />
                   <h2 className="font-display text-lg font-semibold">Supervisor Trace</h2>
                 </div>
@@ -334,6 +501,29 @@ export default function Home() {
       </div>
     </main>
   );
+}
+
+function normalizeProfile(profile: DailyBriefing["profile"]): UserProfile {
+  return {
+    user_id: profile.user_id ?? "demo-user",
+    name: profile.name,
+    age: profile.age,
+    gender: profile.gender ?? "male",
+    height_cm: profile.height_cm ?? 178,
+    weight_kg: profile.weight_kg ?? 82,
+    fitness_level: profile.fitness_level,
+    goal: profile.goal,
+    dietary_restrictions: profile.dietary_restrictions ?? [],
+    equipment_available: profile.equipment_available ?? [],
+    injury_history: profile.injury_history ?? []
+  };
+}
+
+function splitCsv(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function Metric({

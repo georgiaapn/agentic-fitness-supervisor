@@ -11,8 +11,9 @@ from app.config import settings
 from app.db.init_db import init_db
 from app.db.models import AgentRun
 from app.db.session import get_db
-from app.schemas import AgentRunSummary, DailyBriefingResponse, MorningCheckInRequest
+from app.schemas import AgentRunSummary, DailyBriefingResponse, MorningCheckInRequest, UserProfile
 from app.services.persistence import persist_daily_briefing
+from app.services.profiles import get_profile, upsert_profile
 from app.workflow.graph import run_morning_check_in
 
 
@@ -52,10 +53,39 @@ def simulate_morning_check_in(
     payload: MorningCheckInRequest,
     db: Annotated[Session, Depends(get_db)],
 ) -> DailyBriefingResponse:
+    if settings.persistence_enabled:
+        saved_profile = get_profile(db, payload.profile.user_id)
+        if saved_profile is not None:
+            payload = payload.model_copy(update={"profile": saved_profile})
+
     briefing = run_morning_check_in(payload)
     if settings.persistence_enabled:
         persist_daily_briefing(db, payload, briefing)
     return briefing
+
+
+@app.get("/api/profile/{user_id}", response_model=UserProfile)
+def read_profile(
+    user_id: str,
+    db: Annotated[Session, Depends(get_db)],
+) -> UserProfile:
+    if settings.persistence_enabled:
+        saved_profile = get_profile(db, user_id)
+        if saved_profile is not None:
+            return saved_profile
+    return UserProfile(user_id=user_id)
+
+
+@app.put("/api/profile/{user_id}", response_model=UserProfile)
+def update_profile(
+    user_id: str,
+    profile: UserProfile,
+    db: Annotated[Session, Depends(get_db)],
+) -> UserProfile:
+    profile = profile.model_copy(update={"user_id": user_id})
+    if not settings.persistence_enabled:
+        return profile
+    return upsert_profile(db, profile)
 
 
 @app.get("/api/agent-runs", response_model=list[AgentRunSummary])

@@ -2,9 +2,10 @@
   "profile": "product-admin",
   "sourceRoots": ["apps/web/app", "apps/web/components"],
   "canonicalMap": "UX-CONTRACT.md",
-  "requiredCapabilities": ["Form", "Scrollbar", "Toast"],
+  "requiredCapabilities": ["Form", "Select/Listbox", "Scrollbar", "Toast"],
   "ownership": {
     "Form": "native",
+    "Select/Listbox": "native",
     "Scrollbar": "global-css",
     "Toast": "inline-status"
   },
@@ -14,4 +15,3 @@
     "api-syntax": "python -m compileall apps/api/app"
   }
 }
-

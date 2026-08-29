@@ -106,3 +106,7 @@ class AgentRunSummary(BaseModel):
     readiness_score: int
     final_message: str
     created_at: str
+
+
+class ProfileResponse(UserProfile):
+    pass
