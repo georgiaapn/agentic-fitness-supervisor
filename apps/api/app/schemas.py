@@ -98,3 +98,11 @@ class DailyBriefingResponse(BaseModel):
     audit: list[DecisionAuditItem]
     final_message: str
 
+
+class AgentRunSummary(BaseModel):
+    id: str
+    user_id: str
+    recovery_status: str
+    readiness_score: int
+    final_message: str
+    created_at: str

@@ -8,9 +8,9 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen2.5:7b"
     embedding_model: str = "intfloat/multilingual-e5-small"
     environment: str = "local"
+    persistence_enabled: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 
 settings = Settings()
-

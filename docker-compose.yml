@@ -18,6 +18,7 @@ services:
       LLM_PROVIDER: ollama
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       EMBEDDING_MODEL: intfloat/multilingual-e5-small
+      PERSISTENCE_ENABLED: "true"
     ports:
       - "8000:8000"
     depends_on:
@@ -35,4 +36,3 @@ services:
 
 volumes:
   postgres_data:
-
