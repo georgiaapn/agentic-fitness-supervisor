@@ -42,6 +42,9 @@ type DailyBriefing = {
     sleep_hours: number;
     sleep_score: number;
     resting_heart_rate: number;
+    blood_oxygen_level: number;
+    step_count: number;
+    activity_level: string;
     stress_level: number;
     soreness_quads: number;
     energy_level: number;
@@ -85,6 +88,12 @@ type DailyBriefing = {
 };
 
 type UserProfile = Required<DailyBriefing["profile"]>;
+type MorningSelfReport = {
+  soreness_quads: number;
+  soreness_upper: number;
+  pain_level: number;
+  available_minutes: number;
+};
 
 const navItems: Array<{ label: string; icon: LucideIcon }> = [
   { label: "Daily briefing", icon: Gauge },
@@ -112,6 +121,9 @@ const fallbackBriefing: DailyBriefing = {
     sleep_hours: 5,
     sleep_score: 42,
     resting_heart_rate: 72,
+    blood_oxygen_level: 98,
+    step_count: 5450,
+    activity_level: "moderately_active",
     stress_level: 7,
     soreness_quads: 8,
     energy_level: 4,
@@ -185,6 +197,12 @@ const fallbackBriefing: DailyBriefing = {
 export default function Home() {
   const [briefing, setBriefing] = useState<DailyBriefing>(fallbackBriefing);
   const [profile, setProfile] = useState<UserProfile>(normalizeProfile(fallbackBriefing.profile));
+  const [selfReport, setSelfReport] = useState<MorningSelfReport>({
+    soreness_quads: fallbackBriefing.wearable.soreness_quads,
+    soreness_upper: 3,
+    pain_level: 3,
+    available_minutes: fallbackBriefing.wearable.available_minutes
+  });
   const [runState, setRunState] = useState<"idle" | "running" | "completed" | "failed">("idle");
   const [profileState, setProfileState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -229,7 +247,7 @@ export default function Home() {
       const response = await fetch(`${apiUrl}/api/check-ins/simulate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profile })
+        body: JSON.stringify({ profile, self_report: selfReport })
       });
 
       if (!response.ok) {
@@ -358,6 +376,9 @@ export default function Home() {
               <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <Metric icon={Moon} label="Sleep" value={`${briefing.wearable.sleep_hours}h`} />
                 <Metric icon={HeartPulse} label="Resting HR" value={`${briefing.wearable.resting_heart_rate}`} />
+                <Metric icon={HeartPulse} label="Blood oxygen" value={`${briefing.wearable.blood_oxygen_level}%`} />
+                <Metric icon={Activity} label="Steps" value={briefing.wearable.step_count.toLocaleString()} />
+                <Metric icon={Activity} label="Activity" value={formatActivityLevel(briefing.wearable.activity_level)} />
                 <Metric icon={Activity} label="Quad soreness" value={`${briefing.wearable.soreness_quads}/10`} />
                 <Metric icon={Gauge} label="Energy" value={`${briefing.wearable.energy_level}/10`} />
               </div>
@@ -390,6 +411,46 @@ export default function Home() {
             </section>
 
             <aside className="space-y-5">
+              <section className="rounded-briefing border border-border bg-panel p-5">
+                <div className="flex items-center gap-2">
+                  <HeartPulse size={19} className="text-primary" aria-hidden="true" />
+                  <h2 className="font-display text-lg font-semibold">Morning Self-Report</h2>
+                </div>
+                <div className="mt-4 space-y-4">
+                  <SelfReportSlider
+                    label="Quad soreness"
+                    value={selfReport.soreness_quads}
+                    onChange={(value) => setSelfReport({ ...selfReport, soreness_quads: value })}
+                  />
+                  <SelfReportSlider
+                    label="Upper-body soreness"
+                    value={selfReport.soreness_upper}
+                    onChange={(value) => setSelfReport({ ...selfReport, soreness_upper: value })}
+                  />
+                  <SelfReportSlider
+                    label="Pain level"
+                    value={selfReport.pain_level}
+                    onChange={(value) => setSelfReport({ ...selfReport, pain_level: value })}
+                  />
+                  <label className="block text-sm font-medium text-ink">
+                    Available minutes
+                    <input
+                      className="mt-1 w-full rounded-control border border-border bg-white px-3 py-2 text-sm text-ink"
+                      max={180}
+                      min={5}
+                      type="number"
+                      value={selfReport.available_minutes}
+                      onChange={(event) =>
+                        setSelfReport({
+                          ...selfReport,
+                          available_minutes: Number(event.target.value)
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              </section>
+
               <section className="rounded-briefing border border-border bg-panel p-5">
                 <div className="flex items-center gap-2">
                   <User size={19} className="text-primary" aria-hidden="true" />
@@ -494,8 +555,8 @@ export default function Home() {
                   <h2 className="font-display text-lg font-semibold">Supervisor Trace</h2>
                 </div>
                 <div className="mt-5 space-y-4">
-                  {briefing.audit.map((item) => (
-                    <div className="border-l-2 border-primary pl-4" key={`${item.agent}-${item.decision}`}>
+                  {briefing.audit.map((item, index) => (
+                    <div className="border-l-2 border-primary pl-4" key={`${item.agent}-${index}`}>
                       <p className="font-data text-xs uppercase text-primary">{item.agent}</p>
                       <p className="mt-1 text-sm font-medium text-ink">{item.decision}</p>
                       <p className="mt-2 text-xs leading-5 text-slate">{item.evidence.join(" · ")}</p>
@@ -507,8 +568,8 @@ export default function Home() {
               <section className="rounded-briefing border border-border bg-panel p-5">
                 <h2 className="font-display text-lg font-semibold">Active Constraints</h2>
                 <ul className="mt-4 space-y-3">
-                  {briefing.recovery.constraints.map((constraint) => (
-                    <li className="rounded-control bg-surface px-3 py-2 text-sm text-slate" key={constraint}>
+                  {briefing.recovery.constraints.map((constraint, index) => (
+                    <li className="rounded-control bg-surface px-3 py-2 text-sm text-slate" key={`${constraint}-${index}`}>
                       {constraint}
                     </li>
                   ))}
@@ -543,6 +604,37 @@ function splitCsv(value: string): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function formatActivityLevel(value: string): string {
+  return value.replaceAll("_", " ");
+}
+
+function SelfReportSlider({
+  label,
+  value,
+  onChange
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block text-sm font-medium text-ink">
+      <span className="flex items-center justify-between gap-3">
+        <span>{label}</span>
+        <span className="font-data text-xs text-slate">{value}/10</span>
+      </span>
+      <input
+        className="mt-2 w-full accent-primary"
+        max={10}
+        min={0}
+        type="range"
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
+  );
 }
 
 function Metric({
@@ -590,16 +682,16 @@ function PlanSection({
         </div>
       </div>
       <ul className="mt-4 space-y-2">
-        {items.map((item) => (
-          <li className="text-sm leading-6 text-slate" key={item}>
+        {items.map((item, index) => (
+          <li className="text-sm leading-6 text-slate" key={`${item}-${index}`}>
             {item}
           </li>
         ))}
       </ul>
       {notes.length > 0 ? (
         <div className="mt-4 border-t border-border pt-3">
-          {notes.map((note) => (
-            <p className="text-xs leading-5 text-slate" key={note}>
+          {notes.map((note, index) => (
+            <p className="text-xs leading-5 text-slate" key={`${note}-${index}`}>
               {note}
             </p>
           ))}
@@ -609,8 +701,8 @@ function PlanSection({
         <div className="mt-4 border-t border-border pt-3">
           <p className="font-data text-xs uppercase text-primary">Retrieved context</p>
           <div className="mt-3 space-y-3">
-            {context.slice(0, 3).map((hit) => (
-              <div className="border-l-2 border-primary/40 pl-3" key={`${hit.source}-${hit.title}`}>
+            {context.slice(0, 3).map((hit, index) => (
+              <div className="border-l-2 border-primary/40 pl-3" key={`${hit.source}-${hit.title}-${index}`}>
                 <div className="flex items-start justify-between gap-3">
                   <p className="text-sm font-medium text-ink">{hit.title}</p>
                   <span className="font-data text-xs text-slate">{Math.round(hit.score * 100)}%</span>

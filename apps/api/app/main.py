@@ -20,6 +20,7 @@ from app.schemas import (
 )
 from app.services.persistence import persist_daily_briefing
 from app.services.profiles import get_profile, upsert_profile
+from app.services.wearable_data import WearableDataService
 from app.workflow.graph import run_morning_check_in
 
 
@@ -60,6 +61,9 @@ def simulate_morning_check_in(
     payload: MorningCheckInRequest,
     db: Annotated[Session, Depends(get_db)],
 ) -> DailyBriefingResponse:
+    wearable = WearableDataService().sample_snapshot(payload.self_report)
+    payload = payload.model_copy(update={"wearable": wearable})
+
     if settings.persistence_enabled:
         saved_profile = get_profile(db, payload.profile.user_id)
         if saved_profile is not None:

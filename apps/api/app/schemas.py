@@ -27,6 +27,9 @@ class WearableSnapshot(BaseModel):
     sleep_hours: float = 5.0
     sleep_score: int = Field(default=42, ge=0, le=100)
     resting_heart_rate: int = 72
+    blood_oxygen_level: float = Field(default=98.0, ge=0, le=100)
+    step_count: int = Field(default=5450, ge=0)
+    activity_level: str = "moderately_active"
     stress_level: int = Field(default=7, ge=0, le=10)
     soreness_quads: int = Field(default=8, ge=0, le=10)
     soreness_upper: int = Field(default=3, ge=0, le=10)
@@ -35,9 +38,17 @@ class WearableSnapshot(BaseModel):
     available_minutes: int = 35
 
 
+class MorningSelfReport(BaseModel):
+    soreness_quads: int = Field(default=8, ge=0, le=10)
+    soreness_upper: int = Field(default=3, ge=0, le=10)
+    pain_level: int = Field(default=3, ge=0, le=10)
+    available_minutes: int = Field(default=35, ge=5, le=180)
+
+
 class MorningCheckInRequest(BaseModel):
     profile: UserProfile = Field(default_factory=UserProfile)
     wearable: WearableSnapshot = Field(default_factory=WearableSnapshot)
+    self_report: MorningSelfReport = Field(default_factory=MorningSelfReport)
     requested_plan: Literal["daily_briefing", "workout", "nutrition"] = "daily_briefing"
 
 

@@ -46,6 +46,9 @@ def persist_daily_briefing(
         sleep_hours=wearable.sleep_hours,
         sleep_score=wearable.sleep_score,
         resting_heart_rate=wearable.resting_heart_rate,
+        blood_oxygen_level=wearable.blood_oxygen_level,
+        step_count=wearable.step_count,
+        activity_level=wearable.activity_level,
         stress_level=wearable.stress_level,
         soreness_quads=wearable.soreness_quads,
         soreness_upper=wearable.soreness_upper,
@@ -106,4 +109,3 @@ def persist_daily_briefing(
     db.commit()
     db.refresh(run)
     return run
-
