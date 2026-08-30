@@ -79,11 +79,17 @@ SEED_KNOWLEDGE = [
 
 
 def seed_knowledge_base(db: Session) -> None:
-    existing = db.scalar(select(KnowledgeDocument.id).limit(1))
-    if existing is not None:
-        return
-
     for document_data in SEED_KNOWLEDGE:
+        existing = db.scalar(
+            select(KnowledgeDocument.id)
+            .where(KnowledgeDocument.collection == document_data["collection"])
+            .where(KnowledgeDocument.title == document_data["title"])
+            .where(KnowledgeDocument.source_uri == "seed://mvp-knowledge-base")
+            .limit(1)
+        )
+        if existing is not None:
+            continue
+
         document = KnowledgeDocument(
             collection=document_data["collection"],
             title=document_data["title"],
@@ -105,4 +111,3 @@ def seed_knowledge_base(db: Session) -> None:
             )
 
     db.commit()
-
