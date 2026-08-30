@@ -17,6 +17,13 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type RecoveryStatus = "GREEN" | "YELLOW" | "RED";
 
+type RagContext = Array<{
+  source: string;
+  title: string;
+  snippet: string;
+  score: number;
+}>;
+
 type DailyBriefing = {
   profile: {
     user_id?: string;
@@ -59,6 +66,7 @@ type DailyBriefing = {
     intensity: string;
     blocks: string[];
     notes: string[];
+    rag_context?: RagContext;
   } | null;
   nutrition: {
     title: string;
@@ -66,6 +74,7 @@ type DailyBriefing = {
     protein_g: number;
     meals: string[];
     notes: string[];
+    rag_context?: RagContext;
   } | null;
   audit: Array<{
     agent: string;
@@ -136,7 +145,15 @@ const fallbackBriefing: DailyBriefing = {
       "3 rounds: Spanish squat isometric 20 sec, band pull-aparts x 15",
       "3 min downshift breathing"
     ],
-    notes: ["No heavy squats, lunges, leg press, or deadlifts today."]
+    notes: ["No heavy squats, lunges, leg press, or deadlifts today."],
+    rag_context: [
+      {
+        source: "exercise_knowledge_base",
+        title: "Lower-body mobility reset",
+        snippet: "Cat-cow, 90/90 hip switches, couch stretch, and ankle rocks are low-load options.",
+        score: 0.88
+      }
+    ]
   },
   nutrition: {
     title: "Recovery-focused nutrition day",
@@ -352,6 +369,7 @@ export default function Home() {
                   eyebrow="Trainer adjustment"
                   items={briefing.workout?.blocks ?? ["No training session generated today."]}
                   notes={briefing.workout?.notes ?? []}
+                  context={briefing.workout?.rag_context ?? []}
                 />
                 <PlanSection
                   icon={Apple}
@@ -549,13 +567,15 @@ function PlanSection({
   eyebrow,
   title,
   items,
-  notes
+  notes,
+  context
 }: {
   icon: LucideIcon;
   eyebrow: string;
   title: string;
   items: string[];
   notes: string[];
+  context?: RagContext;
 }) {
   return (
     <section className="rounded-control border border-border bg-surface p-4">
@@ -582,6 +602,22 @@ function PlanSection({
               {note}
             </p>
           ))}
+        </div>
+      ) : null}
+      {context && context.length > 0 ? (
+        <div className="mt-4 border-t border-border pt-3">
+          <p className="font-data text-xs uppercase text-primary">Retrieved context</p>
+          <div className="mt-3 space-y-3">
+            {context.slice(0, 3).map((hit) => (
+              <div className="border-l-2 border-primary/40 pl-3" key={`${hit.source}-${hit.title}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <p className="text-sm font-medium text-ink">{hit.title}</p>
+                  <span className="font-data text-xs text-slate">{Math.round(hit.score * 100)}%</span>
+                </div>
+                <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate">{hit.snippet}</p>
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
     </section>

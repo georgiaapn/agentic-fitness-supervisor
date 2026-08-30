@@ -37,12 +37,22 @@ class RagService:
             ]
         return []
 
-    def mobility_exercises(self, profile: UserProfile) -> list[RagHit]:
+    def mobility_exercises(self, profile: UserProfile, recovery_safe: bool = False) -> list[RagHit]:
         if self.db is not None:
-            query = "lower body mobility knee friendly quad soreness low load"
+            query = (
+                "upper legs lower legs body weight assisted band quads hamstrings glutes "
+                "calves stretch mobility soreness recovery knee low load"
+            )
             if profile.injury_history:
                 query += " " + " ".join(profile.injury_history)
-            hits = self._search("exercise_knowledge_base", query)
+            hits = self._search(
+                "exercise_knowledge_base",
+                query,
+                limit=5,
+                prefer_terms=["stretch", "mobility", "assisted", "body weight", "rotation"],
+                avoid_terms=_recovery_exercise_avoid_terms() if recovery_safe else None,
+                required_any_terms=["stretch", "mobility", "rotation"] if recovery_safe else None,
+            )
             if hits:
                 return hits
 
@@ -85,7 +95,15 @@ class RagService:
             ),
         ]
 
-    def _search(self, collection: str, query: str, limit: int = 3) -> list[RagHit]:
+    def _search(
+        self,
+        collection: str,
+        query: str,
+        limit: int = 3,
+        prefer_terms: list[str] | None = None,
+        avoid_terms: list[str] | None = None,
+        required_any_terms: list[str] | None = None,
+    ) -> list[RagHit]:
         if self.db is None:
             return []
 
@@ -93,7 +111,6 @@ class RagService:
             select(KnowledgeChunk)
             .where(KnowledgeChunk.collection == collection)
             .order_by(KnowledgeChunk.created_at.asc())
-            .limit(50)
         ).all()
         query_terms = _terms(query)
 
@@ -106,9 +123,16 @@ class RagService:
                     " ".join(str(value) for value in chunk.metadata_.values()),
                 ]
             ).lower()
+            title = chunk.title.lower()
+            if avoid_terms and any(term in title for term in avoid_terms):
+                continue
+            if required_any_terms and not any(term in haystack for term in required_any_terms):
+                continue
+
             matches = sum(1 for term in query_terms if term in haystack)
             if matches:
-                scored.append((matches / max(len(query_terms), 1), chunk))
+                preference_boost = _preference_boost(haystack, prefer_terms)
+                scored.append(((matches / max(len(query_terms), 1)) + preference_boost, chunk))
 
         scored.sort(key=lambda item: item[0], reverse=True)
         return [
@@ -124,3 +148,21 @@ class RagService:
 
 def _terms(value: str) -> list[str]:
     return [term for term in re.findall(r"[a-zA-Z0-9_]+", value.lower()) if len(term) > 2]
+
+
+def _preference_boost(haystack: str, prefer_terms: list[str] | None) -> float:
+    if not prefer_terms:
+        return 0.0
+    matches = sum(1 for term in prefer_terms if term in haystack)
+    return min(matches * 0.08, 0.24)
+
+
+def _recovery_exercise_avoid_terms() -> list[str]:
+    return [
+        "deadlift",
+        "jump",
+        "lunge",
+        "press",
+        "squat",
+        "weighted",
+    ]
