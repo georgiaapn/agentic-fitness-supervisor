@@ -74,10 +74,24 @@ class RagService:
 
     def recovery_meals(self, profile: UserProfile) -> list[RagHit]:
         if self.db is not None:
-            query = "recovery protein anti inflammatory meals rest day"
+            query = "healthy recipe high protein recovery balanced meal diet cuisine"
+            if profile.goal == "fat_loss":
+                query += " dash mediterranean lean high satiety"
+            elif profile.goal == "hypertrophy":
+                query += " high protein balanced carbs training support"
+            elif profile.goal == "strength":
+                query += " high protein carbs training support"
+            else:
+                query += " balanced healthy"
             if profile.dietary_restrictions:
                 query += " " + " ".join(profile.dietary_restrictions)
-            hits = self._search("nutrition_knowledge_base", query)
+            hits = self._search(
+                "nutrition_knowledge_base",
+                query,
+                limit=4,
+                prefer_terms=_nutrition_prefer_terms(profile),
+                avoid_terms=_nutrition_avoid_terms(profile),
+            )
             if hits:
                 return hits
 
@@ -266,3 +280,26 @@ def _recovery_exercise_avoid_terms() -> list[str]:
         "squat",
         "weighted",
     ]
+
+
+def _nutrition_prefer_terms(profile: UserProfile) -> list[str]:
+    terms = ["protein", "healthy"]
+    if profile.goal == "fat_loss":
+        terms.extend(["dash", "mediterranean"])
+    if profile.goal in {"hypertrophy", "strength"}:
+        terms.extend(["protein", "carbs"])
+    if any("vegan" in restriction.lower() for restriction in profile.dietary_restrictions):
+        terms.append("vegan")
+    return terms
+
+
+def _nutrition_avoid_terms(profile: UserProfile) -> list[str]:
+    restrictions = " ".join(profile.dietary_restrictions).lower()
+    avoid_terms: list[str] = []
+    if "shellfish" in restrictions:
+        avoid_terms.extend(["shrimp", "prawn", "crab", "lobster", "scallop"])
+    if "dairy" in restrictions:
+        avoid_terms.extend(["milk", "cheese", "yogurt", "cream"])
+    if "gluten" in restrictions:
+        avoid_terms.extend(["wheat", "pasta", "bread"])
+    return avoid_terms

@@ -21,3 +21,7 @@ premium-audit.json
 # Exercise dataset media is not covered by the dataset MIT license.
 data/raw/exercises/images/
 data/raw/exercises/videos/
+
+# Kaggle nutrition data should stay local unless redistribution rights are confirmed.
+data/raw/nutrition/*.csv
+data/raw/nutrition/*.zip

@@ -384,6 +384,7 @@ export default function Home() {
                         ]
                       : []
                   }
+                  context={briefing.nutrition?.rag_context ?? []}
                 />
               </div>
             </section>
