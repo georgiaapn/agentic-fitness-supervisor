@@ -1,10 +1,11 @@
 import re
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.db.models import KnowledgeChunk
 from app.schemas import RagHit, UserProfile, WearableSnapshot
+from app.services.embeddings import EmbeddingProviderUnavailable, embed_query, vector_literal
 
 
 class RagService:
@@ -107,6 +108,16 @@ class RagService:
         if self.db is None:
             return []
 
+        vector_hits = self._vector_search(
+            collection,
+            query,
+            limit=limit,
+            avoid_terms=avoid_terms,
+            required_any_terms=required_any_terms,
+        )
+        if vector_hits:
+            return vector_hits
+
         chunks = self.db.scalars(
             select(KnowledgeChunk)
             .where(KnowledgeChunk.collection == collection)
@@ -123,10 +134,12 @@ class RagService:
                     " ".join(str(value) for value in chunk.metadata_.values()),
                 ]
             ).lower()
-            title = chunk.title.lower()
-            if avoid_terms and any(term in title for term in avoid_terms):
-                continue
-            if required_any_terms and not any(term in haystack for term in required_any_terms):
+            if not _allowed_by_constraints(
+                title=chunk.title,
+                haystack=haystack,
+                avoid_terms=avoid_terms,
+                required_any_terms=required_any_terms,
+            ):
                 continue
 
             matches = sum(1 for term in query_terms if term in haystack)
@@ -145,9 +158,96 @@ class RagService:
             for score, chunk in scored[:limit]
         ]
 
+    def _vector_search(
+        self,
+        collection: str,
+        query: str,
+        limit: int,
+        avoid_terms: list[str] | None,
+        required_any_terms: list[str] | None,
+    ) -> list[RagHit]:
+        if self.db is None:
+            return []
+        if not self._collection_has_embeddings(collection):
+            return []
+
+        try:
+            embedding = vector_literal(embed_query(query)) # turn query into embedding too
+        except EmbeddingProviderUnavailable:
+            return []
+
+        rows = self.db.execute(
+            text(
+                "SELECT title, content, collection, "
+                "1 - (embedding <=> CAST(:embedding AS vector)) AS score "
+                "FROM knowledge_chunks "
+                "WHERE collection = :collection AND embedding IS NOT NULL "
+                "ORDER BY embedding <=> CAST(:embedding AS vector) "
+                "LIMIT :candidate_limit"
+            ),
+            {
+                "collection": collection,
+                "embedding": embedding,
+                "candidate_limit": max(limit * 10, 20),
+            },
+        ).mappings()
+
+        hits: list[RagHit] = []
+        for row in rows:
+            haystack = f"{row['title']} {row['content']}".lower()
+            if not _allowed_by_constraints(
+                title=str(row["title"]),
+                haystack=haystack,
+                avoid_terms=avoid_terms,
+                required_any_terms=required_any_terms,
+            ):
+                continue
+            hits.append(
+                RagHit(
+                    source=str(row["collection"]),
+                    title=str(row["title"]),
+                    snippet=str(row["content"]),
+                    score=round(float(row["score"]), 2),
+                )
+            )
+            if len(hits) >= limit:
+                break
+
+        return hits
+
+    def _collection_has_embeddings(self, collection: str) -> bool:
+        if self.db is None:
+            return False
+
+        return bool(
+            self.db.scalar(
+                text(
+                    "SELECT EXISTS ("
+                    "SELECT 1 FROM knowledge_chunks "
+                    "WHERE collection = :collection AND embedding IS NOT NULL"
+                    ")"
+                ),
+                {"collection": collection},
+            )
+        )
+
 
 def _terms(value: str) -> list[str]:
     return [term for term in re.findall(r"[a-zA-Z0-9_]+", value.lower()) if len(term) > 2]
+
+
+def _allowed_by_constraints(
+    title: str,
+    haystack: str,
+    avoid_terms: list[str] | None,
+    required_any_terms: list[str] | None,
+) -> bool:
+    lowered_title = title.lower()
+    if avoid_terms and any(term in lowered_title for term in avoid_terms):
+        return False
+    if required_any_terms and not any(term in haystack for term in required_any_terms):
+        return False
+    return True
 
 
 def _preference_boost(haystack: str, prefer_terms: list[str] | None) -> float:
