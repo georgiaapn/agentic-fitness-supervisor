@@ -17,3 +17,7 @@ __pycache__/
 venv/
 *.egg-info/
 premium-audit.json
+
+# Exercise dataset media is not covered by the dataset MIT license.
+data/raw/exercises/images/
+data/raw/exercises/videos/
