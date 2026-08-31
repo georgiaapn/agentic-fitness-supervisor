@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -27,6 +27,7 @@ class User(Base):
     )
     check_ins: Mapped[list["DailyCheckIn"]] = relationship(back_populates="user")
     runs: Mapped[list["AgentRun"]] = relationship(back_populates="user")
+    saved_generated_plans: Mapped[list["SavedGeneratedPlan"]] = relationship(back_populates="user")
 
 
 class UserProfileRecord(Base):
@@ -159,6 +160,25 @@ class PlanVersion(Base):
     )
 
     run: Mapped[AgentRun] = relationship(back_populates="plan_versions")
+
+
+class SavedGeneratedPlan(Base):
+    __tablename__ = "saved_generated_plans"
+    __table_args__ = (UniqueConstraint("user_id", "plan_type", name="uq_saved_generated_plans_user_type"),)
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    plan_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    title: Mapped[str] = mapped_column(String(180), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship(back_populates="saved_generated_plans")
 
 
 class KnowledgeDocument(Base):

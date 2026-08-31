@@ -93,6 +93,39 @@ class NutritionPlan(BaseModel):
     rag_context: list[RagHit] = Field(default_factory=list)
 
 
+class WeeklyNutritionMeal(BaseModel):
+    meal_type: str
+    name: str
+    calories: int
+    protein_g: int
+    carbs_g: int
+    fat_g: int
+
+
+class WeeklyNutritionDay(BaseModel):
+    day: str
+    focus: str
+    meals: list[WeeklyNutritionMeal]
+
+
+class WeeklyNutritionPlan(BaseModel):
+    title: str
+    daily_calorie_target: int
+    daily_protein_g: int
+    days: list[WeeklyNutritionDay]
+    notes: list[str]
+    rag_context: list[RagHit] = Field(default_factory=list)
+
+
+class SavedGeneratedPlanSummary(BaseModel):
+    id: str
+    user_id: str
+    plan_type: str
+    title: str
+    payload: dict
+    updated_at: str
+
+
 class DecisionAuditItem(BaseModel):
     agent: AgentName
     decision: str

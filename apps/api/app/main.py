@@ -12,7 +12,7 @@ from app.config import settings
 from app.db.models import AgentRun, KnowledgeChunk
 from app.db.seed import seed_knowledge_base
 from app.db.session import SessionLocal, get_db
-from app.agents.nutritionist import create_nutrition_plan
+from app.agents.nutritionist import create_nutrition_plan, create_weekly_nutrition_plan
 from app.agents.trainer import create_weekly_workout_plan
 from app.schemas import (
     AgentRunSummary,
@@ -20,12 +20,15 @@ from app.schemas import (
     KnowledgeChunkSummary,
     MorningCheckInRequest,
     NutritionPlan,
+    SavedGeneratedPlanSummary,
     SupervisorDirectives,
     UserProfile,
+    WeeklyNutritionPlan,
     WorkoutPlan,
 )
 from app.services.persistence import persist_daily_briefing
 from app.services.profiles import get_profile, upsert_profile
+from app.services.saved_plans import list_saved_generated_plans, upsert_saved_generated_plan
 from app.services.llm import get_llm_client
 from app.services.rag import RagService
 from app.services.wearable_data import WearableDataService
@@ -97,11 +100,20 @@ def generate_weekly_workout_plan(
         saved_profile = get_profile(db, profile.user_id)
         if saved_profile is not None:
             profile = saved_profile
-    return create_weekly_workout_plan(
+    plan = create_weekly_workout_plan(
         profile,
         RagService(db if settings.persistence_enabled else None),
         get_llm_client(),
     )
+    if settings.persistence_enabled:
+        upsert_saved_generated_plan(
+            db,
+            profile=profile,
+            plan_type="weekly_workout",
+            title=plan.title,
+            payload=plan.model_dump(mode="json"),
+        )
+    return plan
 
 
 @app.post("/api/plans/nutrition", response_model=NutritionPlan)
@@ -126,6 +138,41 @@ def generate_diet_plan(
         RagService(db if settings.persistence_enabled else None),
         get_llm_client(),
     )
+
+
+@app.post("/api/plans/nutrition/weekly", response_model=WeeklyNutritionPlan)
+def generate_weekly_diet_plan(
+    profile: UserProfile,
+    db: Annotated[Session, Depends(get_db)],
+) -> WeeklyNutritionPlan:
+    if settings.persistence_enabled:
+        saved_profile = get_profile(db, profile.user_id)
+        if saved_profile is not None:
+            profile = saved_profile
+    plan = create_weekly_nutrition_plan(
+        profile,
+        RagService(db if settings.persistence_enabled else None),
+        get_llm_client(),
+    )
+    if settings.persistence_enabled:
+        upsert_saved_generated_plan(
+            db,
+            profile=profile,
+            plan_type="weekly_nutrition",
+            title=plan.title,
+            payload=plan.model_dump(mode="json"),
+        )
+    return plan
+
+
+@app.get("/api/profile/{user_id}/generated-plans", response_model=list[SavedGeneratedPlanSummary])
+def read_generated_plans(
+    user_id: str,
+    db: Annotated[Session, Depends(get_db)],
+) -> list[SavedGeneratedPlanSummary]:
+    if not settings.persistence_enabled:
+        return []
+    return list_saved_generated_plans(db, user_id)
 
 
 @app.get("/api/profile/{user_id}", response_model=UserProfile)

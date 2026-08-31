@@ -12,6 +12,7 @@ import {
   Loader2,
   LogOut,
   Moon,
+  NotebookTabs,
   Sparkles,
   Timer,
   User,
@@ -21,7 +22,7 @@ import type { LucideIcon } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type RecoveryStatus = "GREEN" | "YELLOW" | "RED";
-type DialogMode = "none" | "profile" | "checkin" | "briefing" | "workout" | "nutrition";
+type DialogMode = "none" | "profile" | "plans" | "checkin" | "briefing" | "workout" | "nutrition";
 type ActiveAction = "workout" | "nutrition" | "checkin" | null;
 
 type RagContext = Array<{
@@ -100,6 +101,39 @@ type NutritionResponse = {
   meals: string[];
   notes: string[];
   rag_context?: RagContext;
+};
+
+type WeeklyNutritionMeal = {
+  meal_type: string;
+  name: string;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+};
+
+type WeeklyNutritionDay = {
+  day: string;
+  focus: string;
+  meals: WeeklyNutritionMeal[];
+};
+
+type WeeklyNutritionResponse = {
+  title: string;
+  daily_calorie_target: number;
+  daily_protein_g: number;
+  days: WeeklyNutritionDay[];
+  notes: string[];
+  rag_context?: RagContext;
+};
+
+type SavedGeneratedPlan = {
+  id: string;
+  user_id: string;
+  plan_type: "weekly_workout" | "weekly_nutrition" | string;
+  title: string;
+  payload: Record<string, unknown>;
+  updated_at: string;
 };
 
 type UserProfile = Required<DailyBriefing["profile"]>;
@@ -216,7 +250,8 @@ export default function Home() {
   });
   const [briefing, setBriefing] = useState<DailyBriefing>(fallbackBriefing);
   const [workoutPlan, setWorkoutPlan] = useState<PlanResponse | null>(null);
-  const [nutritionPlan, setNutritionPlan] = useState<NutritionResponse | null>(null);
+  const [nutritionPlan, setNutritionPlan] = useState<WeeklyNutritionResponse | null>(null);
+  const [savedPlans, setSavedPlans] = useState<SavedGeneratedPlan[]>([]);
   const [dialogMode, setDialogMode] = useState<DialogMode>("none");
   const [runState, setRunState] = useState<"idle" | "running" | "completed" | "failed">("idle");
   const [activeAction, setActiveAction] = useState<ActiveAction>(null);
@@ -239,7 +274,17 @@ export default function Home() {
       }
     }
 
+    async function loadSavedPlans() {
+      try {
+        const plans = await fetchSavedPlans("demo-user");
+        if (!ignore) setSavedPlans(plans);
+      } catch {
+        // Saved plans are optional in non-persistent local mode.
+      }
+    }
+
     loadProfile();
+    loadSavedPlans();
     return () => {
       ignore = true;
     };
@@ -264,6 +309,7 @@ export default function Home() {
       if (!response.ok) throw new Error("Workout plan could not be generated.");
       const data = (await response.json()) as PlanResponse;
       setWorkoutPlan(data);
+      setSavedPlans(await fetchSavedPlans(profile.user_id));
       setDialogMode("workout");
       setRunState("completed");
     } catch (requestError) {
@@ -279,14 +325,15 @@ export default function Home() {
     setActiveAction("nutrition");
     setError(null);
     try {
-      const response = await fetch(`${apiUrl()}/api/plans/nutrition`, {
+      const response = await fetch(`${apiUrl()}/api/plans/nutrition/weekly`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(profile)
       });
       if (!response.ok) throw new Error("Diet plan could not be generated.");
-      const data = (await response.json()) as NutritionResponse;
+      const data = (await response.json()) as WeeklyNutritionResponse;
       setNutritionPlan(data);
+      setSavedPlans(await fetchSavedPlans(profile.user_id));
       setDialogMode("nutrition");
       setRunState("completed");
     } catch (requestError) {
@@ -359,6 +406,16 @@ export default function Home() {
           athlet<span className="transition group-hover:text-[#1428FF]">IQ</span>
         </button>
         <div className="flex flex-wrap justify-end gap-2">
+          {savedPlans.length > 0 ? (
+            <button
+              className="inline-flex min-h-9 items-center gap-2 rounded-control bg-white/85 px-4 py-2 text-sm font-medium text-ink shadow-[0_10px_24px_rgba(6,26,46,0.12)] backdrop-blur transition hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_14px_28px_rgba(6,26,46,0.16)] active:translate-y-0"
+              onClick={() => setDialogMode("plans")}
+              type="button"
+            >
+              <NotebookTabs size={16} aria-hidden="true" />
+              See Generated Plans
+            </button>
+          ) : null}
           <button
             className="inline-flex min-h-9 items-center gap-2 rounded-control bg-white/85 px-4 py-2 text-sm font-medium text-ink shadow-[0_10px_24px_rgba(6,26,46,0.12)] backdrop-blur transition hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_14px_28px_rgba(6,26,46,0.16)] active:translate-y-0"
             onClick={() => {
@@ -472,6 +529,22 @@ export default function Home() {
               />
             ) : null}
 
+            {dialogMode === "plans" ? (
+              <SavedPlansPanel
+                plans={savedPlans}
+                onOpenPlan={(plan) => {
+                  if (plan.plan_type === "weekly_workout" && isWorkoutPlanPayload(plan.payload)) {
+                    setWorkoutPlan(plan.payload);
+                    setDialogMode("workout");
+                  }
+                  if (plan.plan_type === "weekly_nutrition" && isWeeklyNutritionPayload(plan.payload)) {
+                    setNutritionPlan(plan.payload);
+                    setDialogMode("nutrition");
+                  }
+                }}
+              />
+            ) : null}
+
             {dialogMode === "checkin" ? (
               <form className="space-y-5" noValidate onSubmit={simulateMorningCheckIn}>
                 <div className="grid gap-4 md:grid-cols-3">
@@ -542,17 +615,7 @@ export default function Home() {
             ) : null}
 
             {dialogMode === "nutrition" && nutritionPlan ? (
-              <PlanSection
-                icon={Apple}
-                title={nutritionPlan.title}
-                eyebrow="Diet plan"
-                items={nutritionPlan.meals}
-                notes={[
-                  `${nutritionPlan.calorie_target} kcal target`,
-                  `${nutritionPlan.protein_g}g protein`,
-                  ...nutritionPlan.notes
-                ]}
-              />
+              <WeeklyNutritionPlan plan={nutritionPlan} />
             ) : null}
           </div>
         </div>
@@ -783,6 +846,143 @@ function WeeklyWorkoutPlan({ plan }: { plan: PlanResponse }) {
   );
 }
 
+function WeeklyNutritionPlan({ plan }: { plan: WeeklyNutritionResponse }) {
+  const days = normalizeNutritionDays(plan.days);
+
+  return (
+    <section className="rounded-[22px] border border-[#17202A]/20 bg-white/55 p-4 shadow-[0_18px_36px_rgba(6,26,46,0.12)] backdrop-blur">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="mt-1 text-[#1428FF]">
+            <Apple size={19} aria-hidden="true" />
+          </div>
+          <div>
+            <p className="font-data text-xs uppercase text-[#1428FF]">Nutritionist weekly plan</p>
+            <h3 className="mt-1 font-display text-lg font-semibold">{plan.title}</h3>
+            <p className="mt-2 text-sm text-slate">
+              {plan.daily_calorie_target} kcal/day · {plan.daily_protein_g}g protein/day
+            </p>
+          </div>
+        </div>
+        <button
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-[#111820] px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(6,26,46,0.22)] transition hover:-translate-y-0.5 hover:bg-black hover:shadow-[0_16px_30px_rgba(6,26,46,0.28)] active:translate-y-0"
+          onClick={() => downloadNutritionPdf(plan, days)}
+          type="button"
+        >
+          <Download size={17} aria-hidden="true" />
+          Download PDF
+        </button>
+      </div>
+
+      <div className="mt-5 overflow-x-auto rounded-control border border-[#17202A]/20 bg-white/75 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]">
+        <table className="min-w-[1180px] table-fixed border-collapse text-left">
+          <thead>
+            <tr>
+              {days.map((day) => (
+                <th
+                  className="border-b border-r border-[#17202A]/15 bg-gradient-to-br from-[#DFF7FF] to-[#CDEBFF] px-3 py-3 align-top last:border-r-0"
+                  key={day.day}
+                  scope="col"
+                >
+                  <span className="block font-data text-xs uppercase text-[#0E3B62]">{day.day}</span>
+                  <span className="mt-1 block text-xs font-medium normal-case text-slate">{day.focus}</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              {days.map((day) => (
+                <td className="border-r border-[#17202A]/15 px-3 py-4 align-top last:border-r-0" key={day.day}>
+                  <div className="space-y-3">
+                    {day.meals.map((meal, index) => (
+                      <article
+                        className="rounded-control border border-[#17202A]/10 bg-white/65 p-3 shadow-[0_8px_20px_rgba(6,26,46,0.06)] transition hover:-translate-y-0.5 hover:bg-white"
+                        key={`${day.day}-${meal.meal_type}-${meal.name}-${index}`}
+                      >
+                        <p className="font-data text-[11px] uppercase text-[#1428FF]">{meal.meal_type}</p>
+                        <h4 className="mt-1 text-sm font-semibold leading-5 text-ink">{meal.name}</h4>
+                        <div className="mt-3 grid grid-cols-2 gap-1.5 font-data text-[11px] text-slate">
+                          <span className="rounded bg-[#EFF5FF] px-2 py-1">{meal.calories} kcal</span>
+                          <span className="rounded bg-[#EFF5FF] px-2 py-1">{meal.protein_g}g P</span>
+                          <span className="rounded bg-[#EFF5FF] px-2 py-1">{meal.carbs_g}g C</span>
+                          <span className="rounded bg-[#EFF5FF] px-2 py-1">{meal.fat_g}g F</span>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {plan.notes.length > 0 ? (
+        <div className="mt-4 grid gap-2 border-t border-[#17202A]/15 pt-3 md:grid-cols-2">
+          {plan.notes.map((note, index) => (
+            <p
+              className="rounded-control border border-[#17202A]/10 bg-white/65 px-3 py-2 text-xs leading-5 text-slate"
+              key={`${note}-${index}`}
+            >
+              {note}
+            </p>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function SavedPlansPanel({
+  plans,
+  onOpenPlan
+}: {
+  plans: SavedGeneratedPlan[];
+  onOpenPlan: (plan: SavedGeneratedPlan) => void;
+}) {
+  if (plans.length === 0) {
+    return (
+      <section className="rounded-[22px] border border-[#17202A]/20 bg-white/55 p-5 text-sm text-slate shadow-[0_16px_32px_rgba(6,26,46,0.1)] backdrop-blur">
+        Generate a workout or diet plan first. Saved plans will appear here.
+      </section>
+    );
+  }
+
+  return (
+    <section className="grid gap-4 md:grid-cols-2">
+      {plans.map((plan) => (
+        <article
+          className="rounded-[22px] border border-[#17202A]/20 bg-white/55 p-5 shadow-[0_16px_32px_rgba(6,26,46,0.1)] backdrop-blur transition hover:-translate-y-1 hover:bg-white/70 hover:shadow-[0_22px_42px_rgba(6,26,46,0.14)]"
+          key={plan.id}
+        >
+          <div className="flex items-start gap-3">
+            <div className="mt-1 text-[#1428FF]">
+              {plan.plan_type === "weekly_workout" ? (
+                <Dumbbell size={20} aria-hidden="true" />
+              ) : (
+                <Apple size={20} aria-hidden="true" />
+              )}
+            </div>
+            <div>
+              <p className="font-data text-xs uppercase text-[#1428FF]">{savedPlanLabel(plan.plan_type)}</p>
+              <h3 className="mt-1 font-display text-lg font-semibold">{plan.title}</h3>
+              <p className="mt-2 text-xs text-slate">Updated {formatDateTime(plan.updated_at)}</p>
+            </div>
+          </div>
+          <button
+            className="mt-5 inline-flex min-h-11 items-center justify-center rounded-control bg-[#111820] px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(6,26,46,0.22)] transition hover:-translate-y-0.5 hover:bg-black hover:shadow-[0_16px_30px_rgba(6,26,46,0.28)] active:translate-y-0"
+            onClick={() => onOpenPlan(plan)}
+            type="button"
+          >
+            Open plan
+          </button>
+        </article>
+      ))}
+    </section>
+  );
+}
+
 function ProfileForm({
   profile,
   profileState,
@@ -1008,6 +1208,17 @@ function parseWeeklyPlan(blocks: string[]): WeeklyDayPlan[] {
   });
 }
 
+function normalizeNutritionDays(days: WeeklyNutritionDay[]): WeeklyNutritionDay[] {
+  return weekDays.map((day) => {
+    const matchingDay = days.find((item) => item.day.trim().toLowerCase() === day.toLowerCase());
+    return matchingDay ?? {
+      day,
+      focus: "Meal planning",
+      meals: []
+    };
+  });
+}
+
 function parseDayBlock(day: string, block: string): WeeklyDayPlan {
   const withoutDay = block.replace(new RegExp(`^${day}:\\s*`, "i"), "").trim();
   if (!withoutDay) {
@@ -1039,7 +1250,7 @@ function splitWorkoutDetails(value: string): string[] {
 }
 
 function downloadWorkoutPdf(plan: PlanResponse, days: WeeklyDayPlan[]) {
-  const pdf = createWorkoutPdf(plan, days);
+  const pdf = createTextPdf(workoutPdfLines(plan, days));
   const pdfBuffer = pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength) as ArrayBuffer;
   const url = URL.createObjectURL(new Blob([pdfBuffer], { type: "application/pdf" }));
   const link = document.createElement("a");
@@ -1051,8 +1262,21 @@ function downloadWorkoutPdf(plan: PlanResponse, days: WeeklyDayPlan[]) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function createWorkoutPdf(plan: PlanResponse, days: WeeklyDayPlan[]): Uint8Array {
-  const lines = [
+function downloadNutritionPdf(plan: WeeklyNutritionResponse, days: WeeklyNutritionDay[]) {
+  const pdf = createTextPdf(nutritionPdfLines(plan, days));
+  const pdfBuffer = pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength) as ArrayBuffer;
+  const url = URL.createObjectURL(new Blob([pdfBuffer], { type: "application/pdf" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${slugify(plan.title)}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function workoutPdfLines(plan: PlanResponse, days: WeeklyDayPlan[]): string[] {
+  return [
     plan.title,
     `${plan.duration_minutes} min sessions | ${plan.intensity} intensity`,
     "",
@@ -1064,6 +1288,27 @@ function createWorkoutPdf(plan: PlanResponse, days: WeeklyDayPlan[]): Uint8Array
     "Notes",
     ...plan.notes.map((note) => `- ${note}`)
   ];
+}
+
+function nutritionPdfLines(plan: WeeklyNutritionResponse, days: WeeklyNutritionDay[]): string[] {
+  return [
+    plan.title,
+    `${plan.daily_calorie_target} kcal/day | ${plan.daily_protein_g}g protein/day`,
+    "",
+    ...days.flatMap((day) => [
+      `${day.day}: ${day.focus}`,
+      ...day.meals.map(
+        (meal) =>
+          `- ${meal.meal_type}: ${meal.name} (${meal.calories} kcal, ${meal.protein_g}g protein, ${meal.carbs_g}g carbs, ${meal.fat_g}g fat)`
+      ),
+      ""
+    ]),
+    "Notes",
+    ...plan.notes.map((note) => `- ${note}`)
+  ];
+}
+
+function createTextPdf(lines: string[]): Uint8Array {
   const pageWidth = 595;
   const pageHeight = 842;
   const margin = 44;
@@ -1157,6 +1402,46 @@ function slugify(value: string): string {
     .replace(/^-|-$/g, "") || "weekly-workout-plan";
 }
 
+async function fetchSavedPlans(userId: string): Promise<SavedGeneratedPlan[]> {
+  const response = await fetch(`${apiUrl()}/api/profile/${userId}/generated-plans`);
+  if (!response.ok) return [];
+  return (await response.json()) as SavedGeneratedPlan[];
+}
+
+function isWorkoutPlanPayload(payload: Record<string, unknown>): payload is PlanResponse {
+  return (
+    typeof payload.title === "string" &&
+    typeof payload.duration_minutes === "number" &&
+    Array.isArray(payload.blocks) &&
+    Array.isArray(payload.notes)
+  );
+}
+
+function isWeeklyNutritionPayload(payload: Record<string, unknown>): payload is WeeklyNutritionResponse {
+  return (
+    typeof payload.title === "string" &&
+    typeof payload.daily_calorie_target === "number" &&
+    typeof payload.daily_protein_g === "number" &&
+    Array.isArray(payload.days) &&
+    Array.isArray(payload.notes)
+  );
+}
+
+function savedPlanLabel(planType: string): string {
+  if (planType === "weekly_workout") return "Weekly workout";
+  if (planType === "weekly_nutrition") return "Weekly nutrition";
+  return "Generated plan";
+}
+
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(date);
+}
+
 function normalizeProfile(profile: DailyBriefing["profile"]): UserProfile {
   return {
     user_id: profile.user_id ?? "demo-user",
@@ -1186,6 +1471,7 @@ function formatActivityLevel(value: string): string {
 
 function dialogTitle(mode: DialogMode): string {
   if (mode === "profile") return "My profile";
+  if (mode === "plans") return "Generated plans";
   if (mode === "checkin") return "Morning self-report";
   if (mode === "briefing") return "Daily evaluation";
   if (mode === "workout") return "Weekly workout plan";
@@ -1195,6 +1481,7 @@ function dialogTitle(mode: DialogMode): string {
 
 function dialogEyebrow(mode: DialogMode): string {
   if (mode === "profile") return "Account settings";
+  if (mode === "plans") return "Saved coaching output";
   if (mode === "checkin") return "Smartwatch sync";
   if (mode === "briefing") return "Supervisor output";
   if (mode === "workout") return "Trainer agent";

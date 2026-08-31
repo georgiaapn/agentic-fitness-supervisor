@@ -310,7 +310,7 @@ def _nutrition_avoid_terms(profile: UserProfile) -> list[str]:
     restrictions = " ".join(profile.dietary_restrictions).lower()
     avoid_terms: list[str] = []
     if "shellfish" in restrictions:
-        avoid_terms.extend(["shrimp", "prawn", "crab", "lobster", "scallop"])
+        avoid_terms.extend(["shellfish", "shrimp", "prawn", "crab", "lobster", "scallop"])
     if "dairy" in restrictions:
         avoid_terms.extend(["milk", "cheese", "yogurt", "cream"])
     if "gluten" in restrictions:
