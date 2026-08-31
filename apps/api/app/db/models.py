@@ -1,7 +1,7 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -28,6 +28,7 @@ class User(Base):
     check_ins: Mapped[list["DailyCheckIn"]] = relationship(back_populates="user")
     runs: Mapped[list["AgentRun"]] = relationship(back_populates="user")
     saved_generated_plans: Mapped[list["SavedGeneratedPlan"]] = relationship(back_populates="user")
+    saved_daily_adjustments: Mapped[list["SavedDailyAdjustment"]] = relationship(back_populates="user")
 
 
 class UserProfileRecord(Base):
@@ -179,6 +180,28 @@ class SavedGeneratedPlan(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="saved_generated_plans")
+
+
+class SavedDailyAdjustment(Base):
+    __tablename__ = "saved_daily_adjustments"
+    __table_args__ = (UniqueConstraint("user_id", "adjustment_date", name="uq_saved_daily_adjustments_user_date"),)
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    adjustment_date: Mapped[date] = mapped_column(Date, nullable=False)
+    current_day: Mapped[str] = mapped_column(String(20), nullable=False)
+    recovery_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    readiness_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(180), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship(back_populates="saved_daily_adjustments")
 
 
 class KnowledgeDocument(Base):

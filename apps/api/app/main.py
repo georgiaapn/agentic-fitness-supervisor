@@ -20,6 +20,8 @@ from app.schemas import (
     KnowledgeChunkSummary,
     MorningCheckInRequest,
     NutritionPlan,
+    SaveDailyAdjustmentRequest,
+    SavedDailyAdjustmentSummary,
     SavedGeneratedPlanSummary,
     SupervisorDirectives,
     UserProfile,
@@ -27,6 +29,7 @@ from app.schemas import (
     WorkoutPlan,
 )
 from app.services.persistence import persist_daily_briefing
+from app.services.daily_adjustments import list_saved_daily_adjustments, upsert_saved_daily_adjustment
 from app.services.profiles import get_profile, upsert_profile
 from app.services.saved_plans import list_saved_generated_plans, upsert_saved_generated_plan
 from app.services.llm import get_llm_client
@@ -173,6 +176,52 @@ def read_generated_plans(
     if not settings.persistence_enabled:
         return []
     return list_saved_generated_plans(db, user_id)
+
+
+@app.get("/api/profile/{user_id}/daily-adjustments", response_model=list[SavedDailyAdjustmentSummary])
+def read_daily_adjustments(
+    user_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    limit: int = 14,
+) -> list[SavedDailyAdjustmentSummary]:
+    if not settings.persistence_enabled:
+        return []
+    return list_saved_daily_adjustments(db, user_id, limit)
+
+
+@app.post("/api/profile/{user_id}/daily-adjustments", response_model=SavedDailyAdjustmentSummary)
+def save_daily_adjustment(
+    user_id: str,
+    payload: SaveDailyAdjustmentRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> SavedDailyAdjustmentSummary:
+    briefing = payload.briefing
+    if briefing.profile.user_id != user_id:
+        briefing = briefing.model_copy(update={"profile": briefing.profile.model_copy(update={"user_id": user_id})})
+    if not settings.persistence_enabled:
+        return SavedDailyAdjustmentSummary(
+            id="local-only",
+            user_id=user_id,
+            adjustment_date="local-only",
+            current_day=briefing.current_day or "Today",
+            recovery_status=briefing.recovery.status,
+            readiness_score=briefing.recovery.readiness_score,
+            title=f"{briefing.current_day or 'Today'} adjustment",
+            payload=briefing.model_dump(mode="json"),
+            updated_at="local-only",
+        )
+    adjustment = upsert_saved_daily_adjustment(db, briefing=briefing)
+    return SavedDailyAdjustmentSummary(
+        id=str(adjustment.id),
+        user_id=adjustment.user_id,
+        adjustment_date=adjustment.adjustment_date.isoformat(),
+        current_day=adjustment.current_day,
+        recovery_status=adjustment.recovery_status,
+        readiness_score=adjustment.readiness_score,
+        title=adjustment.title,
+        payload=adjustment.payload,
+        updated_at=adjustment.updated_at.isoformat(),
+    )
 
 
 @app.get("/api/profile/{user_id}", response_model=UserProfile)

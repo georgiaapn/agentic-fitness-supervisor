@@ -60,3 +60,12 @@ def list_saved_generated_plans(db: Session, user_id: str) -> list[SavedGenerated
         )
         for plan in plans
     ]
+
+
+def get_saved_generated_plan(db: Session, user_id: str, plan_type: str) -> SavedGeneratedPlan | None:
+    return db.scalar(
+        select(SavedGeneratedPlan)
+        .where(SavedGeneratedPlan.user_id == user_id)
+        .where(SavedGeneratedPlan.plan_type == plan_type)
+        .limit(1)
+    )
