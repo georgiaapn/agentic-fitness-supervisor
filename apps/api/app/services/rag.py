@@ -11,8 +11,7 @@ from app.services.embeddings import EmbeddingProviderUnavailable, embed_query, v
 class RagService:
     """Retrieval facade for agent knowledge.
 
-    Uses seeded PostgreSQL knowledge chunks when a DB session is available. The scoring is lexical
-    for now, while the schema is ready for pgvector embeddings in the next iteration.
+    Uses pgvector similarity when embeddings exist, with a lexical fallback for local setup.
     """
 
     def __init__(self, db: Session | None = None) -> None:
@@ -20,9 +19,23 @@ class RagService:
 
     def recovery_protocols(self, wearable: WearableSnapshot) -> list[RagHit]:
         if self.db is not None:
-            query = "low sleep soreness fatigue recovery deload"
+            query_parts = ["recovery readiness protocol fatigue load management"]
+            if wearable.sleep_score < 50 or wearable.sleep_hours < 6:
+                query_parts.append("low sleep sleep deprivation poor recovery")
+            if wearable.soreness_quads >= 7 or wearable.soreness_upper >= 7:
+                query_parts.append("high local soreness DOMS deload")
             if wearable.resting_heart_rate > 70:
-                query += " elevated resting heart rate"
+                query_parts.append("elevated resting heart rate")
+            if wearable.blood_oxygen_level < 94:
+                query_parts.append("low blood oxygen SpO2 below threshold")
+            if wearable.stress_level >= 7:
+                query_parts.append("high stress downshift")
+            if wearable.step_count >= 12000:
+                query_parts.append("high step count high activity lower-body volume reduction")
+            if wearable.pain_level >= 6:
+                query_parts.append("pain safety stop rule sharp pain swelling limping")
+
+            query = " ".join(query_parts)
             hits = self._search("recovery_knowledge_base", query)
             if hits:
                 return hits

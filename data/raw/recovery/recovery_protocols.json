@@ -1,0 +1,122 @@
+[
+  {
+    "id": "low_sleep_high_soreness_deload",
+    "title": "Low sleep and high soreness deload protocol",
+    "status": "RED",
+    "signals": ["low sleep score", "sleep deprivation", "high local soreness", "DOMS", "fatigue"],
+    "recommended_actions": [
+      "Replace heavy resistance work for the affected muscle group with active recovery.",
+      "Use easy aerobic work, breathing drills, and low-load mobility for 20 to 35 minutes.",
+      "Keep intensity conversational and stop if soreness changes into sharp pain."
+    ],
+    "avoid": [
+      "Heavy compound lifts for the sore muscle group.",
+      "High volume eccentric loading.",
+      "Max effort conditioning."
+    ],
+    "escalation": "If soreness is paired with sharp pain, swelling, limping, or worsening night pain, recommend professional medical evaluation.",
+    "source_urls": [
+      "https://www.sleepfoundation.org/physical-activity/athletic-performance-and-sleep",
+      "https://archive.cdc.gov/www_cdc_gov/arthritis/basics/physical-activity/pain.html"
+    ]
+  },
+  {
+    "id": "elevated_resting_hr_stress_downshift",
+    "title": "Elevated resting heart rate and stress downshift",
+    "status": "YELLOW",
+    "signals": ["elevated resting heart rate", "high stress", "fatigue", "poor recovery"],
+    "recommended_actions": [
+      "Reduce the day's planned training intensity by one level.",
+      "Favor technique work, zone 2 cardio, mobility, or an upper-body session if lower-body fatigue is also present.",
+      "Keep sets below RPE 7 and increase rest periods."
+    ],
+    "avoid": [
+      "New personal records.",
+      "Dense supersets with limited rest.",
+      "Hard intervals when stress and resting heart rate are both elevated."
+    ],
+    "escalation": "If elevated heart rate is unusual, persistent, or paired with illness symptoms, recommend rest and professional guidance.",
+    "source_urls": [
+      "https://www.sleepfoundation.org/how-sleep-works/benefits-of-sleep"
+    ]
+  },
+  {
+    "id": "low_blood_oxygen_low_intensity",
+    "title": "Low blood oxygen low-intensity protocol",
+    "status": "RED",
+    "signals": ["low blood oxygen", "SpO2 below threshold", "breathing limitation", "readiness risk"],
+    "recommended_actions": [
+      "Keep activity low intensity and conservative.",
+      "Prefer walking, gentle mobility, or complete rest depending on symptoms.",
+      "Do not use the reading alone as diagnosis; treat it as a demo safety signal."
+    ],
+    "avoid": [
+      "Vigorous conditioning.",
+      "Heavy loaded circuits.",
+      "Training through shortness of breath, chest pain, dizziness, or unusual symptoms."
+    ],
+    "escalation": "If low blood oxygen is persistent or paired with shortness of breath, chest pain, confusion, or blue lips, recommend urgent medical evaluation.",
+    "source_urls": [
+      "https://www.cdc.gov/physical-activity-basics/guidelines/chronic-health-conditions-and-disabilities.html"
+    ]
+  },
+  {
+    "id": "pain_safety_stop_rule",
+    "title": "Pain safety stop rule",
+    "status": "RED",
+    "signals": ["high pain", "sharp pain", "limping", "swelling", "joint heat", "night pain"],
+    "recommended_actions": [
+      "Stop the painful movement pattern.",
+      "Replace the session with rest, gentle range-of-motion, or non-painful low-impact activity.",
+      "Keep any movement below mild discomfort."
+    ],
+    "avoid": [
+      "Training through sharp, stabbing, or constant pain.",
+      "Loading a joint that is hot, red, swollen, or causing a limp.",
+      "Repeating the same exercise that caused worsening symptoms."
+    ],
+    "escalation": "Recommend professional medical evaluation when pain is sharp, causes limping, lasts more than two hours after exercise, worsens at night, or swelling does not improve.",
+    "source_urls": [
+      "https://archive.cdc.gov/www_cdc_gov/arthritis/basics/physical-activity/pain.html"
+    ]
+  },
+  {
+    "id": "high_steps_lower_body_volume_reduction",
+    "title": "High step count lower-body volume reduction",
+    "status": "YELLOW",
+    "signals": ["high step count", "high activity level", "lower-body fatigue", "quad soreness"],
+    "recommended_actions": [
+      "Reduce additional lower-body volume when high steps combine with quad or calf soreness.",
+      "Use mobility, trunk work, upper-body training, or easy cycling instead of extra loaded lower-body sets.",
+      "Maintain movement quality and avoid chasing volume on fatigued legs."
+    ],
+    "avoid": [
+      "High-rep squats or lunges after a high-activity day.",
+      "Plyometrics when legs feel heavy.",
+      "Adding extra finishers for the same muscle group."
+    ],
+    "escalation": "If high activity is paired with pain, swelling, or altered gait, follow the pain safety stop rule.",
+    "source_urls": [
+      "https://www.cdc.gov/physical-activity-basics/guidelines/adults.html"
+    ]
+  },
+  {
+    "id": "green_readiness_progression",
+    "title": "Green readiness normal progression",
+    "status": "GREEN",
+    "signals": ["good sleep", "low soreness", "normal stress", "normal resting heart rate", "normal readiness"],
+    "recommended_actions": [
+      "Proceed with the planned training session.",
+      "Progress load only when technique is stable and working sets stay at or below the target RPE.",
+      "Keep the normal warm-up and cool-down in place."
+    ],
+    "avoid": [
+      "Skipping warm-up because readiness is high.",
+      "Large load jumps without recent performance evidence."
+    ],
+    "escalation": "If pain or unusual symptoms appear during the session, override GREEN status and follow the relevant safety rule.",
+    "source_urls": [
+      "https://www.cdc.gov/physical-activity-basics/guidelines/adults.html"
+    ]
+  }
+]
