@@ -68,6 +68,7 @@ class RagService:
                 prefer_terms=_mobility_prefer_terms(focus),
                 avoid_terms=_recovery_exercise_avoid_terms() if recovery_safe else None,
                 required_any_terms=_mobility_required_terms(focus) if recovery_safe else None,
+                allowed_equipment=_allowed_exercise_equipment(profile),
             )
             if hits:
                 return hits
@@ -120,6 +121,7 @@ class RagService:
         prefer_terms: list[str] | None = None,
         avoid_terms: list[str] | None = None,
         required_any_terms: list[str] | None = None,
+        allowed_equipment: set[str] | None = None,
     ) -> list[RagHit]:
         if self.db is None:
             return []
@@ -130,6 +132,7 @@ class RagService:
             limit=limit,
             avoid_terms=avoid_terms,
             required_any_terms=required_any_terms,
+            allowed_equipment=allowed_equipment,
         )
         if vector_hits:
             return vector_hits
@@ -155,6 +158,8 @@ class RagService:
                 haystack=haystack,
                 avoid_terms=avoid_terms,
                 required_any_terms=required_any_terms,
+                allowed_equipment=allowed_equipment,
+                metadata=chunk.metadata_,
             ):
                 continue
 
@@ -181,6 +186,7 @@ class RagService:
         limit: int,
         avoid_terms: list[str] | None,
         required_any_terms: list[str] | None,
+        allowed_equipment: set[str] | None,
     ) -> list[RagHit]:
         if self.db is None:
             return []
@@ -195,6 +201,7 @@ class RagService:
         rows = self.db.execute(
             text(
                 "SELECT title, content, collection, "
+                "metadata, "
                 "1 - (embedding <=> CAST(:embedding AS vector)) AS score "
                 "FROM knowledge_chunks "
                 "WHERE collection = :collection AND embedding IS NOT NULL "
@@ -216,6 +223,8 @@ class RagService:
                 haystack=haystack,
                 avoid_terms=avoid_terms,
                 required_any_terms=required_any_terms,
+                allowed_equipment=allowed_equipment,
+                metadata=dict(row["metadata"] or {}),
             ):
                 continue
             hits.append(
@@ -257,11 +266,15 @@ def _allowed_by_constraints(
     haystack: str,
     avoid_terms: list[str] | None,
     required_any_terms: list[str] | None,
+    allowed_equipment: set[str] | None = None,
+    metadata: dict | None = None,
 ) -> bool:
     lowered_title = title.lower()
     if avoid_terms and any(term in lowered_title for term in avoid_terms):
         return False
     if required_any_terms and not any(term in haystack for term in required_any_terms):
+        return False
+    if allowed_equipment is not None and not _equipment_allowed(metadata, allowed_equipment):
         return False
     return True
 
@@ -344,6 +357,38 @@ def _fallback_mobility_hits(focus: str) -> list[RagHit]:
             score=0.86,
         )
     ]
+
+
+def _allowed_exercise_equipment(profile: UserProfile) -> set[str]:
+    normalized = {_normalize_equipment(item) for item in profile.equipment_available}
+    allowed = {item for item in normalized if item}
+    allowed.update({"body weight", "bodyweight", "assisted"})
+    if "dumbbell" in allowed:
+        allowed.add("dumbbells")
+    if "dumbbells" in allowed:
+        allowed.add("dumbbell")
+    if "band" in allowed:
+        allowed.add("resistance band")
+    if "bands" in allowed:
+        allowed.update({"band", "resistance band"})
+    return allowed
+
+
+def _equipment_allowed(metadata: dict | None, allowed_equipment: set[str]) -> bool:
+    equipment = _normalize_equipment(str((metadata or {}).get("equipment") or ""))
+    if not equipment:
+        return True
+    if equipment in allowed_equipment:
+        return True
+    if equipment == "dumbbell" and "dumbbells" in allowed_equipment:
+        return True
+    if equipment == "dumbbells" and "dumbbell" in allowed_equipment:
+        return True
+    return False
+
+
+def _normalize_equipment(value: str) -> str:
+    return value.strip().lower().replace("_", " ").replace("-", " ")
 
 
 def _recovery_exercise_avoid_terms() -> list[str]:
