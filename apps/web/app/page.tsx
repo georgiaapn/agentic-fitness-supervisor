@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  AlertCircle,
   Apple,
   CalendarCheck,
   CheckCircle2,
@@ -26,6 +27,10 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 type RecoveryStatus = "GREEN" | "YELLOW" | "RED";
 type DialogMode = "none" | "profile" | "plans" | "checkin" | "briefing" | "workout" | "nutrition";
 type ActiveAction = "workout" | "nutrition" | "checkin" | null;
+type ToastMessage = {
+  tone: "info" | "error";
+  message: string;
+};
 
 type RagContext = Array<{
   source: string;
@@ -283,6 +288,7 @@ export default function Home() {
   const [dailyAdjustmentState, setDailyAdjustmentState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const [profileState, setProfileState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -322,11 +328,23 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    if (toast === null) return;
+
+    const timeout = window.setTimeout(() => setToast(null), 4200);
+    return () => window.clearTimeout(timeout);
+  }, [toast]);
+
   const statusTone = useMemo(() => {
     if (briefing.recovery.status === "RED") return "border-recovery text-recovery bg-[#FFF4F0]";
     if (briefing.recovery.status === "YELLOW") return "border-[#B58B16] text-[#7A5A00] bg-[#FFF8E3]";
     return "border-[#1428FF] text-[#1428FF] bg-[#EFF5FF]";
   }, [briefing.recovery.status]);
+
+  const hasWorkoutBaseline = workoutPlan !== null || savedPlans.some((plan) => plan.plan_type === "weekly_workout");
+  const hasNutritionBaseline =
+    nutritionPlan !== null || savedPlans.some((plan) => plan.plan_type === "weekly_nutrition");
+  const canRunCheckIn = hasWorkoutBaseline && hasNutritionBaseline;
 
   async function generateWorkoutPlan() {
     setRunState("running");
@@ -403,6 +421,24 @@ export default function Home() {
     } finally {
       setActiveAction(null);
     }
+  }
+
+  function openCheckIn() {
+    if (canRunCheckIn) {
+      setToast(null);
+      setDialogMode("checkin");
+      return;
+    }
+
+    const missingPlans = [
+      hasWorkoutBaseline ? null : "workout plan",
+      hasNutritionBaseline ? null : "diet plan"
+    ].filter(Boolean);
+
+    setToast({
+      tone: "info",
+      message: `Generate your ${missingPlans.join(" and ")} first, then run the morning check-in.`
+    });
   }
 
   async function saveDailyAdjustment() {
@@ -537,12 +573,14 @@ export default function Home() {
             label="Check in"
             description="Analyze biometrics, assess readiness, and establish today's coaching strategy."
             accent="from-[#BFF4F1]/90 to-[#2672DE]/45"
-            onClick={() => setDialogMode("checkin")}
+            onClick={openCheckIn}
             busy={activeAction === "checkin"}
             locked={runState === "running" && activeAction !== "checkin"}
           />
         </div>
       </section>
+
+      {toast ? <ToastNotice toast={toast} onDismiss={() => setToast(null)} /> : null}
 
       {error ? (
         <div className="relative z-10 mx-auto mt-8 max-w-3xl rounded-control border border-recovery bg-[#FFF4F0] px-4 py-3 text-sm text-recovery shadow-[0_18px_40px_rgba(6,26,46,0.14)]">
@@ -738,6 +776,37 @@ function ActionFrame({
   );
 }
 
+function ToastNotice({
+  toast,
+  onDismiss
+}: {
+  toast: ToastMessage;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      className={`fixed right-5 top-24 z-[60] flex w-[min(420px,calc(100vw-2.5rem))] items-start gap-3 rounded-[18px] border-[2px] bg-white/90 p-4 text-sm shadow-[0_24px_55px_rgba(6,26,46,0.24)] backdrop-blur-md ${
+        toast.tone === "error" ? "border-recovery text-recovery" : "border-[#1428FF] text-[#102235]"
+      }`}
+      role="status"
+      aria-live="polite"
+    >
+      <div className={toast.tone === "error" ? "text-recovery" : "text-[#1428FF]"}>
+        <AlertCircle size={20} aria-hidden="true" />
+      </div>
+      <p className="flex-1 leading-6">{toast.message}</p>
+      <button
+        aria-label="Dismiss notification"
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-control border border-[#17202A]/20 bg-white/60 text-[#102235] transition hover:-translate-y-0.5 hover:border-[#1428FF] hover:bg-[#1428FF] hover:text-white active:translate-y-0"
+        onClick={onDismiss}
+        type="button"
+      >
+        <X size={15} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
 function BriefingResult({
   briefing,
   saveState,
@@ -909,6 +978,7 @@ function TodayBaseline({ briefing }: { briefing: DailyBriefing }) {
 
 function WeeklyWorkoutPlan({ plan }: { plan: PlanResponse }) {
   const days = parseWeeklyPlan(plan.blocks);
+  const notes = userFacingNotes(plan.notes);
 
   return (
     <section className="rounded-[22px] border border-[#17202A]/20 bg-white/55 p-4 shadow-[0_18px_36px_rgba(6,26,46,0.12)] backdrop-blur">
@@ -975,9 +1045,9 @@ function WeeklyWorkoutPlan({ plan }: { plan: PlanResponse }) {
         </table>
       </div>
 
-      {plan.notes.length > 0 ? (
+      {notes.length > 0 ? (
         <div className="mt-4 grid gap-2 border-t border-[#17202A]/15 pt-3 md:grid-cols-2">
-          {plan.notes.map((note, index) => (
+          {notes.map((note, index) => (
             <p
               className="rounded-control border border-[#17202A]/10 bg-white/65 px-3 py-2 text-xs leading-5 text-slate"
               key={`${note}-${index}`}
@@ -994,6 +1064,7 @@ function WeeklyWorkoutPlan({ plan }: { plan: PlanResponse }) {
 
 function WeeklyNutritionPlan({ plan }: { plan: WeeklyNutritionResponse }) {
   const days = normalizeNutritionDays(plan.days);
+  const notes = userFacingNotes(plan.notes);
 
   return (
     <section className="rounded-[22px] border border-[#17202A]/20 bg-white/55 p-4 shadow-[0_18px_36px_rgba(6,26,46,0.12)] backdrop-blur">
@@ -1064,9 +1135,9 @@ function WeeklyNutritionPlan({ plan }: { plan: WeeklyNutritionResponse }) {
         </table>
       </div>
 
-      {plan.notes.length > 0 ? (
+      {notes.length > 0 ? (
         <div className="mt-4 grid gap-2 border-t border-[#17202A]/15 pt-3 md:grid-cols-2">
-          {plan.notes.map((note, index) => (
+          {notes.map((note, index) => (
             <p
               className="rounded-control border border-[#17202A]/10 bg-white/65 px-3 py-2 text-xs leading-5 text-slate"
               key={`${note}-${index}`}
@@ -1239,23 +1310,23 @@ function ProfileForm({
         </select>
       </label>
       <div className="md:col-span-2">
-        <TextInput
+        <CsvTextInput
           label="Dietary restrictions"
-          value={profile.dietary_restrictions.join(", ")}
+          values={profile.dietary_restrictions}
           onChange={(value) => onChange({ ...profile, dietary_restrictions: splitCsv(value) })}
         />
       </div>
       <div className="md:col-span-2">
-        <TextInput
+        <CsvTextInput
           label="Available equipment"
-          value={profile.equipment_available.join(", ")}
+          values={profile.equipment_available}
           onChange={(value) => onChange({ ...profile, equipment_available: splitCsv(value) })}
         />
       </div>
       <div className="md:col-span-2">
-        <TextInput
+        <CsvTextInput
           label="Injury history"
-          value={profile.injury_history.join(", ")}
+          values={profile.injury_history}
           onChange={(value) => onChange({ ...profile, injury_history: splitCsv(value) })}
         />
       </div>
@@ -1301,6 +1372,45 @@ function TextInput({
   );
 }
 
+function CsvTextInput({
+  label,
+  values,
+  onChange
+}: {
+  label: string;
+  values: string[];
+  onChange: (value: string) => void;
+}) {
+  const [draftValue, setDraftValue] = useState(values.join(", "));
+
+  useEffect(() => {
+    setDraftValue(values.join(", "));
+  }, [values]);
+
+  function commit(nextValue: string) {
+    onChange(nextValue);
+    setDraftValue(splitCsv(nextValue).join(", "));
+  }
+
+  return (
+    <label className="block text-sm font-medium text-ink">
+      {label}
+      <input
+        className="mt-1 w-full rounded-control border border-[#17202A]/20 bg-white/70 px-3 py-2 text-sm text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] transition focus:border-[#1428FF]"
+        value={draftValue}
+        onBlur={() => commit(draftValue)}
+        onChange={(event) => setDraftValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit(draftValue);
+          }
+        }}
+      />
+    </label>
+  );
+}
+
 function NumberInput({
   label,
   value,
@@ -1310,14 +1420,31 @@ function NumberInput({
   value: number;
   onChange: (value: number) => void;
 }) {
+  const [draftValue, setDraftValue] = useState(String(value));
+
+  useEffect(() => {
+    setDraftValue(String(value));
+  }, [value]);
+
   return (
     <label className="block text-sm font-medium text-ink">
       {label}
       <input
         className="mt-1 w-full rounded-control border border-[#17202A]/20 bg-white/70 px-3 py-2 text-sm text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] transition focus:border-[#1428FF]"
         type="number"
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
+        value={draftValue}
+        onBlur={() => {
+          if (draftValue.trim() === "") {
+            setDraftValue(String(value));
+          }
+        }}
+        onChange={(event) => {
+          const nextValue = event.target.value;
+          setDraftValue(nextValue);
+          if (nextValue.trim() !== "") {
+            onChange(Number(nextValue));
+          }
+        }}
       />
     </label>
   );
@@ -1493,6 +1620,7 @@ function downloadNutritionPdf(plan: WeeklyNutritionResponse, days: WeeklyNutriti
 }
 
 function workoutPdfLines(plan: PlanResponse, days: WeeklyDayPlan[]): string[] {
+  const notes = userFacingNotes(plan.notes);
   return [
     plan.title,
     `${plan.duration_minutes} min sessions | ${plan.intensity} intensity`,
@@ -1502,12 +1630,12 @@ function workoutPdfLines(plan: PlanResponse, days: WeeklyDayPlan[]): string[] {
       ...day.details.map((detail) => `- ${detail}`),
       ""
     ]),
-    "Notes",
-    ...plan.notes.map((note) => `- ${note}`)
+    ...(notes.length > 0 ? ["Notes", ...notes.map((note) => `- ${note}`)] : [])
   ];
 }
 
 function nutritionPdfLines(plan: WeeklyNutritionResponse, days: WeeklyNutritionDay[]): string[] {
+  const notes = userFacingNotes(plan.notes);
   return [
     plan.title,
     `${plan.daily_calorie_target} kcal/day | ${plan.daily_protein_g}g protein/day`,
@@ -1520,8 +1648,7 @@ function nutritionPdfLines(plan: WeeklyNutritionResponse, days: WeeklyNutritionD
       ),
       ""
     ]),
-    "Notes",
-    ...plan.notes.map((note) => `- ${note}`)
+    ...(notes.length > 0 ? ["Notes", ...notes.map((note) => `- ${note}`)] : [])
   ];
 }
 
@@ -1628,7 +1755,14 @@ function recoveryLabel(status: RecoveryStatus): string {
 function userFacingNotes(notes: string[]): string[] {
   return notes.filter((note) => {
     const lowered = note.toLowerCase();
-    return !lowered.includes("gemini") && !lowered.includes("rag") && !lowered.includes("retrieved");
+    return (
+      !lowered.includes("gemini") &&
+      !lowered.includes("rag") &&
+      !lowered.includes("retrieved") &&
+      !lowered.includes("retrieval") &&
+      !lowered.includes("llm") &&
+      !lowered.includes("context")
+    );
   });
 }
 
