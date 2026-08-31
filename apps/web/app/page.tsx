@@ -3,6 +3,7 @@
 import {
   Activity,
   Apple,
+  CalendarCheck,
   CheckCircle2,
   ClipboardCheck,
   Download,
@@ -13,6 +14,7 @@ import {
   LogOut,
   Moon,
   NotebookTabs,
+  Save,
   Sparkles,
   Timer,
   User,
@@ -62,6 +64,13 @@ type DailyBriefing = {
     injury_history?: string[];
   };
   wearable: WearableSnapshot;
+  current_day?: string | null;
+  baseline_workout?: WeeklyDayPlan | null;
+  baseline_nutrition?: {
+    day: string;
+    focus: string;
+    meals: WeeklyNutritionMeal[];
+  } | null;
   recovery: {
     status: RecoveryStatus;
     readiness_score: number;
@@ -136,6 +145,18 @@ type SavedGeneratedPlan = {
   updated_at: string;
 };
 
+type SavedDailyAdjustment = {
+  id: string;
+  user_id: string;
+  adjustment_date: string;
+  current_day: string;
+  recovery_status: RecoveryStatus;
+  readiness_score: number;
+  title: string;
+  payload: Record<string, unknown>;
+  updated_at: string;
+};
+
 type UserProfile = Required<DailyBriefing["profile"]>;
 type MorningSelfReport = {
   soreness_quads: number;
@@ -184,6 +205,9 @@ const fallbackWearable: WearableSnapshot = {
 const fallbackBriefing: DailyBriefing = {
   profile: fallbackProfile,
   wearable: fallbackWearable,
+  current_day: "Monday",
+  baseline_workout: null,
+  baseline_nutrition: null,
   recovery: {
     status: "RED",
     readiness_score: 18,
@@ -252,9 +276,11 @@ export default function Home() {
   const [workoutPlan, setWorkoutPlan] = useState<PlanResponse | null>(null);
   const [nutritionPlan, setNutritionPlan] = useState<WeeklyNutritionResponse | null>(null);
   const [savedPlans, setSavedPlans] = useState<SavedGeneratedPlan[]>([]);
+  const [savedDailyAdjustments, setSavedDailyAdjustments] = useState<SavedDailyAdjustment[]>([]);
   const [dialogMode, setDialogMode] = useState<DialogMode>("none");
   const [runState, setRunState] = useState<"idle" | "running" | "completed" | "failed">("idle");
   const [activeAction, setActiveAction] = useState<ActiveAction>(null);
+  const [dailyAdjustmentState, setDailyAdjustmentState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const [profileState, setProfileState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const [error, setError] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -276,8 +302,14 @@ export default function Home() {
 
     async function loadSavedPlans() {
       try {
-        const plans = await fetchSavedPlans("demo-user");
-        if (!ignore) setSavedPlans(plans);
+        const [plans, adjustments] = await Promise.all([
+          fetchSavedPlans("demo-user"),
+          fetchSavedDailyAdjustments("demo-user")
+        ]);
+        if (!ignore) {
+          setSavedPlans(plans);
+          setSavedDailyAdjustments(adjustments);
+        }
       } catch {
         // Saved plans are optional in non-persistent local mode.
       }
@@ -362,6 +394,7 @@ export default function Home() {
       const data = (await response.json()) as DailyBriefing;
       setBriefing(data);
       setProfile(normalizeProfile(data.profile));
+      setDailyAdjustmentState("idle");
       setDialogMode("briefing");
       setRunState("completed");
     } catch (requestError) {
@@ -369,6 +402,29 @@ export default function Home() {
       setError(errorMessage(requestError, "Unable to run check-in."));
     } finally {
       setActiveAction(null);
+    }
+  }
+
+  async function saveDailyAdjustment() {
+    setDailyAdjustmentState("saving");
+    setError(null);
+
+    try {
+      const response = await fetch(`${apiUrl()}/api/profile/${profile.user_id}/daily-adjustments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ briefing })
+      });
+
+      if (!response.ok) throw new Error("Daily adjustment could not be saved.");
+
+      const saved = (await response.json()) as SavedDailyAdjustment;
+      const adjustments = await fetchSavedDailyAdjustments(profile.user_id);
+      setSavedDailyAdjustments(adjustments.length > 0 ? adjustments : [saved]);
+      setDailyAdjustmentState("saved");
+    } catch (requestError) {
+      setDailyAdjustmentState("failed");
+      setError(errorMessage(requestError, "Unable to save today's adjustment."));
     }
   }
 
@@ -406,7 +462,7 @@ export default function Home() {
           athlet<span className="transition group-hover:text-[#1428FF]">IQ</span>
         </button>
         <div className="flex flex-wrap justify-end gap-2">
-          {savedPlans.length > 0 ? (
+          {savedPlans.length > 0 || savedDailyAdjustments.length > 0 ? (
             <button
               className="inline-flex min-h-9 items-center gap-2 rounded-control bg-white/85 px-4 py-2 text-sm font-medium text-ink shadow-[0_10px_24px_rgba(6,26,46,0.12)] backdrop-blur transition hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_14px_28px_rgba(6,26,46,0.16)] active:translate-y-0"
               onClick={() => setDialogMode("plans")}
@@ -532,6 +588,7 @@ export default function Home() {
             {dialogMode === "plans" ? (
               <SavedPlansPanel
                 plans={savedPlans}
+                dailyAdjustments={savedDailyAdjustments}
                 onOpenPlan={(plan) => {
                   if (plan.plan_type === "weekly_workout" && isWorkoutPlanPayload(plan.payload)) {
                     setWorkoutPlan(plan.payload);
@@ -542,11 +599,28 @@ export default function Home() {
                     setDialogMode("nutrition");
                   }
                 }}
+                onOpenAdjustment={(adjustment) => {
+                  if (isDailyBriefingPayload(adjustment.payload)) {
+                    setBriefing(adjustment.payload);
+                    setDailyAdjustmentState("saved");
+                    setDialogMode("briefing");
+                  }
+                }}
               />
             ) : null}
 
             {dialogMode === "checkin" ? (
               <form className="space-y-5" noValidate onSubmit={simulateMorningCheckIn}>
+                <section className="rounded-[22px] border border-[#17202A]/20 bg-white/55 p-4 shadow-[0_12px_26px_rgba(6,26,46,0.08)] backdrop-blur">
+                  <p className="font-data text-xs uppercase text-[#1428FF]">Daily readiness check</p>
+                  <h3 className="mt-2 font-display text-lg font-semibold">
+                    Help us adapt today&apos;s plan to how your body feels.
+                  </h3>
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-slate">
+                    Add a quick self-report and we&apos;ll combine it with today&apos;s smartwatch signals to adjust
+                    your workout and meals.
+                  </p>
+                </section>
                 <div className="grid gap-4 md:grid-cols-3">
                   <SelfReportSlider
                     label="Quad soreness"
@@ -577,20 +651,6 @@ export default function Home() {
                     }
                   />
                 </label>
-                <div className="grid gap-3 rounded-control border border-[#17202A]/20 bg-white/55 p-4 text-sm text-slate shadow-[0_10px_24px_rgba(6,26,46,0.08)] backdrop-blur md:grid-cols-3">
-                  <p className="flex items-center gap-2">
-                    <Moon size={16} className="text-[#1428FF]" aria-hidden="true" />
-                    Smartwatch sleep sync
-                  </p>
-                  <p className="flex items-center gap-2">
-                    <HeartPulse size={16} className="text-[#1428FF]" aria-hidden="true" />
-                    HR and SpO2 sample
-                  </p>
-                  <p className="flex items-center gap-2">
-                    <Timer size={16} className="text-[#1428FF]" aria-hidden="true" />
-                    Round-robin CSV row
-                  </p>
-                </div>
                 <button
                   className="inline-flex min-h-11 min-w-44 items-center justify-center gap-2 rounded-control bg-[#111820] px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(6,26,46,0.22)] transition hover:-translate-y-0.5 hover:bg-black hover:shadow-[0_16px_30px_rgba(6,26,46,0.28)] disabled:opacity-70 active:translate-y-0"
                   disabled={activeAction === "checkin"}
@@ -607,7 +667,12 @@ export default function Home() {
             ) : null}
 
             {dialogMode === "briefing" ? (
-              <BriefingResult briefing={briefing} statusTone={statusTone} />
+              <BriefingResult
+                briefing={briefing}
+                saveState={dailyAdjustmentState}
+                statusTone={statusTone}
+                onSave={saveDailyAdjustment}
+              />
             ) : null}
 
             {dialogMode === "workout" && workoutPlan ? (
@@ -675,79 +740,108 @@ function ActionFrame({
 
 function BriefingResult({
   briefing,
-  statusTone
+  saveState,
+  statusTone,
+  onSave
 }: {
   briefing: DailyBriefing;
+  saveState: "idle" | "saving" | "saved" | "failed";
   statusTone: string;
+  onSave: () => void;
 }) {
   return (
     <div className="space-y-5">
-      <section className="rounded-[22px] border border-[#17202A]/20 bg-white/60 p-5 shadow-[0_18px_36px_rgba(6,26,46,0.1)] backdrop-blur">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <div className={`inline-flex rounded-control border px-3 py-1 text-sm ${statusTone}`}>
-              Recovery {briefing.recovery.status}
+      <section className="overflow-hidden rounded-[24px] border border-[#17202A]/20 bg-white/65 shadow-[0_20px_44px_rgba(6,26,46,0.12)] backdrop-blur">
+        <div className="grid gap-0 lg:grid-cols-[1fr_220px]">
+          <div className="p-5">
+            <p className="font-data text-xs uppercase text-[#1428FF]">Recovery decision</p>
+            <div className={`mt-3 inline-flex rounded-control border px-3 py-1 text-sm font-semibold ${statusTone}`}>
+              {recoveryLabel(briefing.recovery.status)}
             </div>
-            <h3 className="mt-4 font-display text-2xl font-semibold">{briefing.final_message}</h3>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate">{briefing.directives.rationale}</p>
+            <h3 className="mt-4 font-display text-2xl font-semibold leading-tight">{briefing.final_message}</h3>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate">{briefing.recovery.summary}</p>
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <button
+                className="inline-flex min-h-11 min-w-52 items-center justify-center gap-2 rounded-control bg-[#111820] px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(6,26,46,0.22)] transition hover:-translate-y-0.5 hover:bg-black hover:shadow-[0_16px_30px_rgba(6,26,46,0.28)] disabled:cursor-not-allowed disabled:opacity-70 active:translate-y-0"
+                disabled={saveState === "saving"}
+                onClick={onSave}
+                type="button"
+              >
+                {saveState === "saving" ? (
+                  <Loader2 className="animate-spin" size={17} aria-hidden="true" />
+                ) : (
+                  <Save size={17} aria-hidden="true" />
+                )}
+                {saveState === "saving" ? "Saving..." : "Save today's adjustment"}
+              </button>
+              <p className="text-xs leading-5 text-slate" role="status">
+                {saveState === "saved"
+                  ? "Saved. You can reopen it from Generated Plans."
+                  : saveState === "failed"
+                    ? "Could not save this adjustment. Try again."
+                    : "Keeps this adjusted workout and meal plan for today."}
+              </p>
+            </div>
           </div>
-          <div className="rounded-control border border-[#17202A]/10 bg-white/65 p-4 text-center">
-            <p className="font-data text-4xl font-semibold">{briefing.recovery.readiness_score}</p>
-            <p className="mt-1 text-xs text-slate">readiness score</p>
+          <div className="flex flex-col justify-center border-t border-[#17202A]/15 bg-gradient-to-br from-[#DFF7FF] to-[#CDEBFF] p-5 text-center lg:border-l lg:border-t-0">
+            <p className="font-data text-5xl font-semibold">{briefing.recovery.readiness_score}</p>
+            <p className="mt-1 text-xs font-medium uppercase text-[#0E3B62]">readiness score</p>
           </div>
         </div>
+      </section>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="rounded-[22px] border border-[#17202A]/20 bg-white/55 p-4 shadow-[0_16px_32px_rgba(6,26,46,0.1)] backdrop-blur">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="font-data text-xs uppercase text-[#1428FF]">Smartwatch signals</p>
+            <h3 className="mt-1 font-display text-lg font-semibold">Today&apos;s body data</h3>
+          </div>
+          <p className="text-xs text-slate">Synced from the demo smartwatch feed plus your self-report.</p>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric icon={Moon} label="Sleep" value={`${briefing.wearable.sleep_hours}h`} />
           <Metric icon={HeartPulse} label="Resting HR" value={`${briefing.wearable.resting_heart_rate}`} />
           <Metric icon={HeartPulse} label="Blood oxygen" value={`${briefing.wearable.blood_oxygen_level}%`} />
           <Metric icon={Activity} label="Steps" value={briefing.wearable.step_count.toLocaleString()} />
           <Metric icon={Activity} label="Activity" value={formatActivityLevel(briefing.wearable.activity_level)} />
           <Metric icon={Activity} label="Quad soreness" value={`${briefing.wearable.soreness_quads}/10`} />
+          <Metric icon={Activity} label="Upper soreness" value={`${briefing.wearable.soreness_upper}/10`} />
+          <Metric icon={Gauge} label="Pain" value={`${briefing.wearable.pain_level}/10`} />
           <Metric icon={Gauge} label="Energy" value={`${briefing.wearable.energy_level}/10`} />
         </div>
       </section>
+
+      <TodayBaseline briefing={briefing} />
 
       <div className="grid gap-5 lg:grid-cols-2">
         <PlanSection
           icon={Dumbbell}
           title={briefing.workout?.title ?? "Trainer skipped"}
-          eyebrow="Trainer adjustment"
+          eyebrow="Adjusted workout"
           items={briefing.workout?.blocks ?? ["No training session generated today."]}
-          notes={briefing.workout?.notes ?? []}
+          notes={userFacingNotes(briefing.workout?.notes ?? [])}
         />
         <PlanSection
           icon={Apple}
           title={briefing.nutrition?.title ?? "Nutrition skipped"}
-          eyebrow="Nutrition plan"
+          eyebrow="Adjusted meals"
           items={briefing.nutrition?.meals ?? ["No nutrition plan generated today."]}
           notes={
             briefing.nutrition
               ? [
                   `${briefing.nutrition.calorie_target} kcal target`,
                   `${briefing.nutrition.protein_g}g protein`,
-                  ...briefing.nutrition.notes
+                  ...userFacingNotes(briefing.nutrition.notes)
                 ]
               : []
           }
         />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      {briefing.recovery.constraints.length > 0 ? (
         <section className="rounded-[22px] border border-[#17202A]/20 bg-white/55 p-4 shadow-[0_16px_32px_rgba(6,26,46,0.1)] backdrop-blur">
-          <h3 className="font-display text-lg font-semibold">Supervisor Trace</h3>
-          <div className="mt-5 space-y-4">
-            {briefing.audit.map((item, index) => (
-              <div className="border-l-2 border-[#1428FF] pl-4" key={`${item.agent}-${index}`}>
-                <p className="font-data text-xs uppercase text-[#1428FF]">{item.agent}</p>
-                <p className="mt-1 text-sm font-medium text-ink">{item.decision}</p>
-                <p className="mt-2 text-xs leading-5 text-slate">{item.evidence.join(" - ")}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-        <section className="rounded-[22px] border border-[#17202A]/20 bg-white/55 p-4 shadow-[0_16px_32px_rgba(6,26,46,0.1)] backdrop-blur">
-          <h3 className="font-display text-lg font-semibold">Active Constraints</h3>
+          <p className="font-data text-xs uppercase text-[#1428FF]">Why it changed</p>
+          <h3 className="mt-1 font-display text-lg font-semibold">Coach guardrails for today</h3>
           <ul className="mt-4 space-y-3">
             {briefing.recovery.constraints.map((constraint, index) => (
               <li className="rounded-control border border-[#17202A]/10 bg-white/65 px-3 py-2 text-sm text-slate" key={`${constraint}-${index}`}>
@@ -756,8 +850,60 @@ function BriefingResult({
             ))}
           </ul>
         </section>
-      </div>
+      ) : null}
     </div>
+  );
+}
+
+function TodayBaseline({ briefing }: { briefing: DailyBriefing }) {
+  const hasWorkout = briefing.baseline_workout !== null && briefing.baseline_workout !== undefined;
+  const hasNutrition = briefing.baseline_nutrition !== null && briefing.baseline_nutrition !== undefined;
+
+  return (
+    <section className="rounded-[22px] border border-[#17202A]/20 bg-white/55 p-4 shadow-[0_16px_32px_rgba(6,26,46,0.1)] backdrop-blur">
+      <p className="font-data text-xs uppercase text-[#1428FF]">
+        Baseline plan{briefing.current_day ? ` · ${briefing.current_day}` : ""}
+      </p>
+      <h3 className="mt-1 font-display text-lg font-semibold">What was planned before the check-in</h3>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-control border border-[#17202A]/10 bg-white/65 p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-ink">
+            <Dumbbell size={17} className="text-[#1428FF]" aria-hidden="true" />
+            Planned workout
+          </div>
+          <p className="mt-2 text-sm font-medium text-slate">
+            {hasWorkout ? briefing.baseline_workout?.title : "No saved weekly workout yet."}
+          </p>
+          {hasWorkout && briefing.baseline_workout?.details.length ? (
+            <ul className="mt-3 space-y-1">
+              {briefing.baseline_workout.details.slice(0, 4).map((detail, index) => (
+                <li className="text-xs leading-5 text-slate" key={`${detail}-${index}`}>
+                  {detail}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+        <div className="rounded-control border border-[#17202A]/10 bg-white/65 p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-ink">
+            <Apple size={17} className="text-[#1428FF]" aria-hidden="true" />
+            Planned meals
+          </div>
+          <p className="mt-2 text-sm font-medium text-slate">
+            {hasNutrition ? briefing.baseline_nutrition?.focus : "No saved weekly diet yet."}
+          </p>
+          {hasNutrition && briefing.baseline_nutrition?.meals.length ? (
+            <ul className="mt-3 space-y-1">
+              {briefing.baseline_nutrition.meals.slice(0, 4).map((meal, index) => (
+                <li className="text-xs leading-5 text-slate" key={`${meal.meal_type}-${meal.name}-${index}`}>
+                  {meal.meal_type}: {meal.name}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -936,12 +1082,16 @@ function WeeklyNutritionPlan({ plan }: { plan: WeeklyNutritionResponse }) {
 
 function SavedPlansPanel({
   plans,
-  onOpenPlan
+  dailyAdjustments,
+  onOpenPlan,
+  onOpenAdjustment
 }: {
   plans: SavedGeneratedPlan[];
+  dailyAdjustments: SavedDailyAdjustment[];
   onOpenPlan: (plan: SavedGeneratedPlan) => void;
+  onOpenAdjustment: (adjustment: SavedDailyAdjustment) => void;
 }) {
-  if (plans.length === 0) {
+  if (plans.length === 0 && dailyAdjustments.length === 0) {
     return (
       <section className="rounded-[22px] border border-[#17202A]/20 bg-white/55 p-5 text-sm text-slate shadow-[0_16px_32px_rgba(6,26,46,0.1)] backdrop-blur">
         Generate a workout or diet plan first. Saved plans will appear here.
@@ -950,36 +1100,77 @@ function SavedPlansPanel({
   }
 
   return (
-    <section className="grid gap-4 md:grid-cols-2">
-      {plans.map((plan) => (
-        <article
-          className="rounded-[22px] border border-[#17202A]/20 bg-white/55 p-5 shadow-[0_16px_32px_rgba(6,26,46,0.1)] backdrop-blur transition hover:-translate-y-1 hover:bg-white/70 hover:shadow-[0_22px_42px_rgba(6,26,46,0.14)]"
-          key={plan.id}
-        >
-          <div className="flex items-start gap-3">
-            <div className="mt-1 text-[#1428FF]">
-              {plan.plan_type === "weekly_workout" ? (
-                <Dumbbell size={20} aria-hidden="true" />
-              ) : (
-                <Apple size={20} aria-hidden="true" />
-              )}
-            </div>
-            <div>
-              <p className="font-data text-xs uppercase text-[#1428FF]">{savedPlanLabel(plan.plan_type)}</p>
-              <h3 className="mt-1 font-display text-lg font-semibold">{plan.title}</h3>
-              <p className="mt-2 text-xs text-slate">Updated {formatDateTime(plan.updated_at)}</p>
-            </div>
+    <div className="space-y-6">
+      {plans.length > 0 ? (
+        <section>
+          <p className="font-data text-xs uppercase text-[#1428FF]">Weekly baselines</p>
+          <div className="mt-3 grid gap-4 md:grid-cols-2">
+            {plans.map((plan) => (
+              <article
+                className="rounded-[22px] border border-[#17202A]/20 bg-white/55 p-5 shadow-[0_16px_32px_rgba(6,26,46,0.1)] backdrop-blur transition hover:-translate-y-1 hover:bg-white/70 hover:shadow-[0_22px_42px_rgba(6,26,46,0.14)]"
+                key={plan.id}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="mt-1 text-[#1428FF]">
+                    {plan.plan_type === "weekly_workout" ? (
+                      <Dumbbell size={20} aria-hidden="true" />
+                    ) : (
+                      <Apple size={20} aria-hidden="true" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-data text-xs uppercase text-[#1428FF]">{savedPlanLabel(plan.plan_type)}</p>
+                    <h3 className="mt-1 font-display text-lg font-semibold">{plan.title}</h3>
+                    <p className="mt-2 text-xs text-slate">Updated {formatDateTime(plan.updated_at)}</p>
+                  </div>
+                </div>
+                <button
+                  className="mt-5 inline-flex min-h-11 items-center justify-center rounded-control bg-[#111820] px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(6,26,46,0.22)] transition hover:-translate-y-0.5 hover:bg-black hover:shadow-[0_16px_30px_rgba(6,26,46,0.28)] active:translate-y-0"
+                  onClick={() => onOpenPlan(plan)}
+                  type="button"
+                >
+                  Open plan
+                </button>
+              </article>
+            ))}
           </div>
-          <button
-            className="mt-5 inline-flex min-h-11 items-center justify-center rounded-control bg-[#111820] px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(6,26,46,0.22)] transition hover:-translate-y-0.5 hover:bg-black hover:shadow-[0_16px_30px_rgba(6,26,46,0.28)] active:translate-y-0"
-            onClick={() => onOpenPlan(plan)}
-            type="button"
-          >
-            Open plan
-          </button>
-        </article>
-      ))}
-    </section>
+        </section>
+      ) : null}
+
+      {dailyAdjustments.length > 0 ? (
+        <section>
+          <p className="font-data text-xs uppercase text-[#1428FF]">Daily adjustments</p>
+          <div className="mt-3 grid gap-4 md:grid-cols-2">
+            {dailyAdjustments.map((adjustment) => (
+              <article
+                className="rounded-[22px] border border-[#17202A]/20 bg-white/55 p-5 shadow-[0_16px_32px_rgba(6,26,46,0.1)] backdrop-blur transition hover:-translate-y-1 hover:bg-white/70 hover:shadow-[0_22px_42px_rgba(6,26,46,0.14)]"
+                key={adjustment.id}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="mt-1 text-[#1428FF]">
+                    <CalendarCheck size={20} aria-hidden="true" />
+                  </div>
+                  <div>
+                    <p className="font-data text-xs uppercase text-[#1428FF]">
+                      {adjustment.current_day} · {adjustment.recovery_status} · {adjustment.readiness_score}
+                    </p>
+                    <h3 className="mt-1 font-display text-lg font-semibold">{adjustment.title}</h3>
+                    <p className="mt-2 text-xs text-slate">Saved {formatDateTime(adjustment.updated_at)}</p>
+                  </div>
+                </div>
+                <button
+                  className="mt-5 inline-flex min-h-11 items-center justify-center rounded-control bg-[#111820] px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(6,26,46,0.22)] transition hover:-translate-y-0.5 hover:bg-black hover:shadow-[0_16px_30px_rgba(6,26,46,0.28)] active:translate-y-0"
+                  onClick={() => onOpenAdjustment(adjustment)}
+                  type="button"
+                >
+                  Open adjustment
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </div>
   );
 }
 
@@ -1402,10 +1593,37 @@ function slugify(value: string): string {
     .replace(/^-|-$/g, "") || "weekly-workout-plan";
 }
 
+function recoveryLabel(status: RecoveryStatus): string {
+  if (status === "RED") return "Recovery RED - reduce today";
+  if (status === "YELLOW") return "Recovery YELLOW - adjust today";
+  return "Recovery GREEN - follow the plan";
+}
+
+function userFacingNotes(notes: string[]): string[] {
+  return notes.filter((note) => {
+    const lowered = note.toLowerCase();
+    return !lowered.includes("gemini") && !lowered.includes("rag") && !lowered.includes("retrieved");
+  });
+}
+
 async function fetchSavedPlans(userId: string): Promise<SavedGeneratedPlan[]> {
-  const response = await fetch(`${apiUrl()}/api/profile/${userId}/generated-plans`);
-  if (!response.ok) return [];
-  return (await response.json()) as SavedGeneratedPlan[];
+  try {
+    const response = await fetch(`${apiUrl()}/api/profile/${userId}/generated-plans`);
+    if (!response.ok) return [];
+    return (await response.json()) as SavedGeneratedPlan[];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchSavedDailyAdjustments(userId: string): Promise<SavedDailyAdjustment[]> {
+  try {
+    const response = await fetch(`${apiUrl()}/api/profile/${userId}/daily-adjustments`);
+    if (!response.ok) return [];
+    return (await response.json()) as SavedDailyAdjustment[];
+  } catch {
+    return [];
+  }
 }
 
 function isWorkoutPlanPayload(payload: Record<string, unknown>): payload is PlanResponse {
@@ -1424,6 +1642,20 @@ function isWeeklyNutritionPayload(payload: Record<string, unknown>): payload is 
     typeof payload.daily_protein_g === "number" &&
     Array.isArray(payload.days) &&
     Array.isArray(payload.notes)
+  );
+}
+
+function isDailyBriefingPayload(payload: Record<string, unknown>): payload is DailyBriefing {
+  return (
+    typeof payload.profile === "object" &&
+    payload.profile !== null &&
+    typeof payload.wearable === "object" &&
+    payload.wearable !== null &&
+    typeof payload.recovery === "object" &&
+    payload.recovery !== null &&
+    typeof payload.directives === "object" &&
+    payload.directives !== null &&
+    typeof payload.final_message === "string"
   );
 }
 
