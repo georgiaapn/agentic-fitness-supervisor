@@ -380,6 +380,7 @@ export default function Home() {
         <div className="grid gap-8 lg:grid-cols-3 xl:gap-10">
           <ActionFrame
             icon={Dumbbell}
+            kicker=" "
             label="Get Workout Plan"
             description="Goal-oriented 7-day training split customized to your fitness level and equipment."
             accent="from-[#78D7FF]/75 to-[#2268D8]/45"
@@ -388,6 +389,7 @@ export default function Home() {
           />
           <ActionFrame
             icon={Apple}
+            kicker=" "
             label="Get Diet Plan"
             description="Personalized 7-day nutrition and macro blueprint built around your metabolic targets."
             accent="from-[#A9F0E0]/80 to-[#2997D8]/45"
@@ -396,6 +398,7 @@ export default function Home() {
           />
           <ActionFrame
             icon={ClipboardCheck}
+            kicker=" "
             label="Check in"
             description="Analyze biometrics, assess readiness, and establish today's coaching strategy."
             accent="from-[#BFF4F1]/90 to-[#2672DE]/45"
