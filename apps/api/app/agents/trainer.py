@@ -81,3 +81,32 @@ def _training_blocks_from_rag(hits: list[RagHit], profile: UserProfile) -> list[
         f"Accessory movement: {accessory}, {volume} with clean tempo",
         "Conditioning finisher: 8 minutes easy to moderate",
     ]
+
+
+def create_weekly_workout_plan(profile: UserProfile, rag: RagService) -> WorkoutPlan:
+    hits = rag.mobility_exercises(profile)
+    exercises = [hit.title for hit in hits[:5]]
+    while len(exercises) < 5:
+        exercises.append("movement prep circuit")
+
+    goal = profile.goal.replace("_", " ")
+    return WorkoutPlan(
+        title=f"Weekly {goal} training plan",
+        duration_minutes=45,
+        intensity="moderate",
+        blocks=[
+            f"Monday: Lower-body strength with {exercises[0]} as movement preparation.",
+            f"Tuesday: Upper-body hypertrophy with {exercises[1]} as accessory mobility.",
+            "Wednesday: Zone 2 cardio and 15 minutes mobility.",
+            f"Thursday: Full-body session with {exercises[2]} as a controlled accessory.",
+            f"Friday: Lower-body volume with {exercises[3]} as warm-up support.",
+            "Saturday: Optional conditioning, core, and easy skill practice.",
+            f"Sunday: Recovery reset using {exercises[4]}.",
+        ],
+        notes=[
+            "Progress load only when all working sets stay at RPE 8 or below.",
+            "Use the morning check-in to downshift any heavy day when recovery is RED.",
+            "Exercise choices are grounded in the retrieved exercise knowledge base.",
+        ],
+        rag_context=hits,
+    )

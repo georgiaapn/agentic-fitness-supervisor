@@ -11,15 +11,21 @@ from app.config import settings
 from app.db.models import AgentRun, KnowledgeChunk
 from app.db.seed import seed_knowledge_base
 from app.db.session import SessionLocal, get_db
+from app.agents.nutritionist import create_nutrition_plan
+from app.agents.trainer import create_weekly_workout_plan
 from app.schemas import (
     AgentRunSummary,
     DailyBriefingResponse,
     KnowledgeChunkSummary,
     MorningCheckInRequest,
+    NutritionPlan,
+    SupervisorDirectives,
     UserProfile,
+    WorkoutPlan,
 )
 from app.services.persistence import persist_daily_briefing
 from app.services.profiles import get_profile, upsert_profile
+from app.services.rag import RagService
 from app.services.wearable_data import WearableDataService
 from app.workflow.graph import run_morning_check_in
 
@@ -73,6 +79,37 @@ def simulate_morning_check_in(
     if settings.persistence_enabled:
         persist_daily_briefing(db, payload, briefing)
     return briefing
+
+
+@app.post("/api/plans/workout/weekly", response_model=WorkoutPlan)
+def generate_weekly_workout_plan(
+    profile: UserProfile,
+    db: Annotated[Session, Depends(get_db)],
+) -> WorkoutPlan:
+    if settings.persistence_enabled:
+        saved_profile = get_profile(db, profile.user_id)
+        if saved_profile is not None:
+            profile = saved_profile
+    return create_weekly_workout_plan(profile, RagService(db if settings.persistence_enabled else None))
+
+
+@app.post("/api/plans/nutrition", response_model=NutritionPlan)
+def generate_diet_plan(
+    profile: UserProfile,
+    db: Annotated[Session, Depends(get_db)],
+) -> NutritionPlan:
+    if settings.persistence_enabled:
+        saved_profile = get_profile(db, profile.user_id)
+        if saved_profile is not None:
+            profile = saved_profile
+    directives = SupervisorDirectives(
+        selected_agents=["nutritionist"],
+        skipped_agents=[],
+        trainer_directive="No workout plan requested.",
+        nutritionist_directive="Create meals that support the user's primary fitness goal.",
+        rationale=f"Standalone diet plan requested for goal {profile.goal}.",
+    )
+    return create_nutrition_plan(profile, directives, RagService(db if settings.persistence_enabled else None))
 
 
 @app.get("/api/profile/{user_id}", response_model=UserProfile)

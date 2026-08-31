@@ -35,6 +35,62 @@ body {
   font-family: Inter, system-ui, sans-serif;
 }
 
+.athletiq-stage {
+  position: relative;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.12) 1px, transparent 1px),
+    radial-gradient(circle at 45% 45%, rgba(61, 220, 225, 0.88), transparent 34%),
+    linear-gradient(135deg, #77d5f0 0%, #2278df 48%, #bff4f1 100%);
+  background-size: 42px 42px, 42px 42px, 100% 100%, 100% 100%;
+}
+
+.athletiq-stage::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, 0.28) 38%, transparent 58%),
+    linear-gradient(180deg, rgba(4, 28, 53, 0.08), transparent 34%, rgba(255, 255, 255, 0.2));
+  opacity: 0.7;
+}
+
+.athletiq-stage::after {
+  position: absolute;
+  inset: auto 8% 6% 8%;
+  height: 1px;
+  pointer-events: none;
+  content: "";
+  background: rgba(8, 29, 48, 0.2);
+  box-shadow: 0 -32px 90px 50px rgba(255, 255, 255, 0.14);
+}
+
+.modal-pop {
+  animation: modal-pop 180ms ease-out both;
+}
+
+@keyframes modal-pop {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+  }
+}
+
 button,
 a {
   -webkit-tap-highlight-color: transparent;
@@ -76,4 +132,3 @@ button:disabled {
 *::-webkit-scrollbar-thumb:hover {
   background: rgba(52, 64, 74, 0.75);
 }
-
