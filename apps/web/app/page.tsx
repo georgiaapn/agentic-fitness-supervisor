@@ -1202,6 +1202,18 @@ function ProfileForm({
         onChange={(value) => onChange({ ...profile, height_cm: value })}
       />
       <label className="block text-sm font-medium text-ink">
+        Gender
+        <select
+          className="mt-1 w-full rounded-control border border-[#17202A]/20 bg-white/70 px-3 py-2 text-sm text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] transition focus:border-[#1428FF]"
+          value={profile.gender}
+          onChange={(event) => onChange({ ...profile, gender: event.target.value })}
+        >
+          <option value="male">Male</option>
+          <option value="female">Female</option>
+          <option value="other">Other</option>
+        </select>
+      </label>
+      <label className="block text-sm font-medium text-ink">
         Goal
         <select
           className="mt-1 w-full rounded-control border border-[#17202A]/20 bg-white/70 px-3 py-2 text-sm text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] transition focus:border-[#1428FF]"
@@ -1231,6 +1243,20 @@ function ProfileForm({
           label="Dietary restrictions"
           value={profile.dietary_restrictions.join(", ")}
           onChange={(value) => onChange({ ...profile, dietary_restrictions: splitCsv(value) })}
+        />
+      </div>
+      <div className="md:col-span-2">
+        <TextInput
+          label="Available equipment"
+          value={profile.equipment_available.join(", ")}
+          onChange={(value) => onChange({ ...profile, equipment_available: splitCsv(value) })}
+        />
+      </div>
+      <div className="md:col-span-2">
+        <TextInput
+          label="Injury history"
+          value={profile.injury_history.join(", ")}
+          onChange={(value) => onChange({ ...profile, injury_history: splitCsv(value) })}
         />
       </div>
       {profileError ? (
