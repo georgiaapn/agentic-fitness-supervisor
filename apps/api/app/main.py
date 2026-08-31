@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import logging
 from typing import Annotated
 
 from fastapi import FastAPI
@@ -25,9 +26,12 @@ from app.schemas import (
 )
 from app.services.persistence import persist_daily_briefing
 from app.services.profiles import get_profile, upsert_profile
+from app.services.llm import get_llm_client
 from app.services.rag import RagService
 from app.services.wearable_data import WearableDataService
 from app.workflow.graph import run_morning_check_in
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 
 
 @asynccontextmanager
@@ -56,9 +60,12 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict[str, str]:
+    llm = get_llm_client()
     return {
         "status": "ok",
         "persistence": "enabled" if settings.persistence_enabled else "disabled",
+        "llm_provider": llm.provider,
+        "llm": "enabled" if llm.enabled else "fallback",
     }
 
 
@@ -90,7 +97,11 @@ def generate_weekly_workout_plan(
         saved_profile = get_profile(db, profile.user_id)
         if saved_profile is not None:
             profile = saved_profile
-    return create_weekly_workout_plan(profile, RagService(db if settings.persistence_enabled else None))
+    return create_weekly_workout_plan(
+        profile,
+        RagService(db if settings.persistence_enabled else None),
+        get_llm_client(),
+    )
 
 
 @app.post("/api/plans/nutrition", response_model=NutritionPlan)
@@ -109,7 +120,12 @@ def generate_diet_plan(
         nutritionist_directive="Create meals that support the user's primary fitness goal.",
         rationale=f"Standalone diet plan requested for goal {profile.goal}.",
     )
-    return create_nutrition_plan(profile, directives, RagService(db if settings.persistence_enabled else None))
+    return create_nutrition_plan(
+        profile,
+        directives,
+        RagService(db if settings.persistence_enabled else None),
+        get_llm_client(),
+    )
 
 
 @app.get("/api/profile/{user_id}", response_model=UserProfile)

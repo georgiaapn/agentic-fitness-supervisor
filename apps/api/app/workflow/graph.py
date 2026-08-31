@@ -5,6 +5,7 @@ from app.agents.recovery import analyze_recovery
 from app.agents.supervisor import coordinate_day
 from app.agents.trainer import create_workout_plan
 from app.schemas import DailyBriefingResponse, DecisionAuditItem, MorningCheckInRequest
+from app.services.llm import get_llm_client
 from app.services.rag import RagService
 from app.workflow.state import FitnessGraphState, SpecialistNode
 
@@ -59,13 +60,24 @@ def route_specialists(state: FitnessGraphState) -> list[SpecialistNode]:
 
 def trainer_node(state: FitnessGraphState) -> FitnessGraphState:
     rag = RagService(state.get("db"))
-    workout = create_workout_plan(state["profile"], state["wearable"], state["directives"], rag)
+    workout = create_workout_plan(
+        state["profile"],
+        state["wearable"],
+        state["directives"],
+        rag,
+        get_llm_client(),
+    )
     return {"workout": workout}
 
 
 def nutritionist_node(state: FitnessGraphState) -> FitnessGraphState:
     rag = RagService(state.get("db"))
-    nutrition = create_nutrition_plan(state["profile"], state["directives"], rag)
+    nutrition = create_nutrition_plan(
+        state["profile"],
+        state["directives"],
+        rag,
+        get_llm_client(),
+    )
     return {"nutrition": nutrition}
 
 

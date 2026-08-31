@@ -1,5 +1,10 @@
+import logging
+
 from app.schemas import RagHit, SupervisorDirectives, UserProfile, WearableSnapshot, WorkoutPlan
+from app.services.llm import LlmClient
 from app.services.rag import RagService
+
+logger = logging.getLogger(__name__)
 
 
 def create_workout_plan(
@@ -7,13 +12,14 @@ def create_workout_plan(
     wearable: WearableSnapshot,
     directives: SupervisorDirectives,
     rag: RagService,
+    llm: LlmClient | None = None,
 ) -> WorkoutPlan:
     is_mobility_day = "mobility" in directives.trainer_directive.lower()
     hits = rag.mobility_exercises(profile, recovery_safe=is_mobility_day)
 
     if is_mobility_day:
         selected_blocks = _mobility_blocks_from_rag(hits, wearable.available_minutes)
-        return WorkoutPlan(
+        fallback = WorkoutPlan(
             title="Lower-body recovery mobility",
             duration_minutes=min(wearable.available_minutes, 30),
             intensity="low",
@@ -26,9 +32,10 @@ def create_workout_plan(
             ],
             rag_context=hits,
         )
+        return _generate_daily_workout_with_llm(profile, wearable, directives, hits, fallback, llm)
 
     selected_blocks = _training_blocks_from_rag(hits, profile)
-    return WorkoutPlan(
+    fallback = WorkoutPlan(
         title=f"{profile.goal.replace('_', ' ').title()} training session",
         duration_minutes=wearable.available_minutes,
         intensity="moderate",
@@ -39,6 +46,7 @@ def create_workout_plan(
         ],
         rag_context=hits[:1],
     )
+    return _generate_daily_workout_with_llm(profile, wearable, directives, hits, fallback, llm)
 
 
 def _mobility_blocks_from_rag(hits: list[RagHit], available_minutes: int) -> list[str]:
@@ -83,25 +91,50 @@ def _training_blocks_from_rag(hits: list[RagHit], profile: UserProfile) -> list[
     ]
 
 
-def create_weekly_workout_plan(profile: UserProfile, rag: RagService) -> WorkoutPlan:
+def create_weekly_workout_plan(
+    profile: UserProfile,
+    rag: RagService,
+    llm: LlmClient | None = None,
+) -> WorkoutPlan:
     hits = rag.mobility_exercises(profile)
     exercises = [hit.title for hit in hits[:5]]
     while len(exercises) < 5:
         exercises.append("movement prep circuit")
 
     goal = profile.goal.replace("_", " ")
-    return WorkoutPlan(
+    fallback = WorkoutPlan(
         title=f"Weekly {goal} training plan",
         duration_minutes=45,
         intensity="moderate",
         blocks=[
-            f"Monday: Lower-body strength with {exercises[0]} as movement preparation.",
-            f"Tuesday: Upper-body hypertrophy with {exercises[1]} as accessory mobility.",
-            "Wednesday: Zone 2 cardio and 15 minutes mobility.",
-            f"Thursday: Full-body session with {exercises[2]} as a controlled accessory.",
-            f"Friday: Lower-body volume with {exercises[3]} as warm-up support.",
-            "Saturday: Optional conditioning, core, and easy skill practice.",
-            f"Sunday: Recovery reset using {exercises[4]}.",
+            (
+                f"Monday: Lower-body strength - {exercises[0]}: 2 x 30 sec per side; "
+                "Goblet squat: 3 x 8-10 at RPE 7; Romanian deadlift: 3 x 8."
+            ),
+            (
+                f"Tuesday: Upper-body hypertrophy - {exercises[1]}: 2 x 30 sec per side; "
+                "Dumbbell press: 3 x 10-12; One-arm row: 3 x 10 per side."
+            ),
+            (
+                "Wednesday: Zone 2 cardio - Easy bike or incline walk: 30-40 min; "
+                "Core plank: 3 x 30 sec; Hip mobility flow: 8 min."
+            ),
+            (
+                f"Thursday: Full-body session - {exercises[2]}: 2 x 30 sec per side; "
+                "Deadlift pattern: 3 x 6 at RPE 7; Band pull-apart: 3 x 15."
+            ),
+            (
+                f"Friday: Lower-body volume - {exercises[3]}: 2 x 30 sec per side; "
+                "Split squat variation: 3 x 8 per side; Hamstring curl: 3 x 12."
+            ),
+            (
+                "Saturday: Conditioning and core - Dumbbell circuit: 5 rounds of 40 sec work, 20 sec rest; "
+                "Farmer carry: 4 x 30 sec; Easy cooldown walk: 8 min."
+            ),
+            (
+                f"Sunday: Recovery reset - {exercises[4]}: 2 x 45 sec per side; "
+                "Nasal-breathing walk: 20 min; Downshift breathing: 5 min."
+            ),
         ],
         notes=[
             "Progress load only when all working sets stay at RPE 8 or below.",
@@ -110,3 +143,93 @@ def create_weekly_workout_plan(profile: UserProfile, rag: RagService) -> Workout
         ],
         rag_context=hits,
     )
+    if llm is None or not llm.enabled:
+        logger.info("Trainer weekly plan using deterministic fallback: LLM disabled.")
+        return fallback
+
+    logger.info("Trainer weekly plan requesting Gemini generation.")
+    generated = llm.generate_structured(
+        output_model=WorkoutPlan,
+        system_prompt=(
+            "You are the Trainer Agent in a multi-agent fitness coaching board. "
+            "Create practical, safe, beginner-readable training plans. "
+            "Use the retrieved exercise context as grounding, respect injury history, "
+            "and never claim medical certainty."
+        ),
+        user_prompt=(
+            "Generate a 7-day weekly workout plan as JSON.\n\n"
+            f"User profile:\n{profile.model_dump_json()}\n\n"
+            f"Retrieved exercise context:\n{_rag_context_json(hits)}\n\n"
+            "Requirements:\n"
+            "- Include exactly 7 blocks, one for each day from Monday to Sunday.\n"
+            "- Format each block as: Day: Session title - exercise or interval; exercise or interval; exercise or interval.\n"
+            "- Every training day must include specific exercises with sets/reps or timed intervals.\n"
+            "- Rest or recovery days must include a clear recovery prescription such as walking, mobility, stretching, or complete rest.\n"
+            "- Keep duration_minutes between 30 and 75.\n"
+            "- Use intensity low, moderate, or high.\n"
+            "- Include 2 to 5 concise notes.\n"
+            "- Omit rag_context or return it as an empty list; the API will attach retrieved context."
+        ),
+    )
+    if generated is None:
+        logger.info("Trainer weekly plan using deterministic fallback: Gemini generation failed.")
+        return fallback
+    logger.info("Trainer weekly plan generated by Gemini.")
+    return _with_rag_context(generated, hits)
+
+
+def _generate_daily_workout_with_llm(
+    profile: UserProfile,
+    wearable: WearableSnapshot,
+    directives: SupervisorDirectives,
+    hits: list[RagHit],
+    fallback: WorkoutPlan,
+    llm: LlmClient | None,
+) -> WorkoutPlan:
+    if llm is None or not llm.enabled:
+        logger.info("Trainer daily plan using deterministic fallback: LLM disabled.")
+        return fallback
+
+    logger.info("Trainer daily plan requesting Gemini generation.")
+    generated = llm.generate_structured(
+        output_model=WorkoutPlan,
+        system_prompt=(
+            "You are the Trainer Agent in a multi-agent fitness coaching board. "
+            "Generate only safe training plans that follow the Supervisor directive. "
+            "If recovery constraints require mobility or deloading, do not prescribe heavy loading."
+        ),
+        user_prompt=(
+            "Generate today's workout plan as JSON.\n\n"
+            f"User profile:\n{profile.model_dump_json()}\n\n"
+            f"Wearable and self-report data:\n{wearable.model_dump_json()}\n\n"
+            f"Supervisor directives:\n{directives.model_dump_json()}\n\n"
+            f"Retrieved exercise context:\n{_rag_context_json(hits)}\n\n"
+            "Requirements:\n"
+            "- Keep duration_minutes no higher than available_minutes.\n"
+            "- Use intensity low, moderate, or high.\n"
+            "- Include 3 to 6 workout blocks.\n"
+            "- Include 2 to 5 concise notes.\n"
+            "- Omit rag_context or return it as an empty list; the API will attach retrieved context."
+        ),
+    )
+    if generated is None:
+        logger.info("Trainer daily plan using deterministic fallback: Gemini generation failed.")
+        return fallback
+    if "mobility" in directives.trainer_directive.lower() and generated.intensity != "low":
+        logger.info(
+            "Trainer daily plan using deterministic fallback: Gemini returned non-low intensity for mobility day."
+        )
+        return fallback
+    logger.info("Trainer daily plan generated by Gemini.")
+    return _with_rag_context(generated, hits)
+
+
+def _with_rag_context(plan: WorkoutPlan, hits: list[RagHit]) -> WorkoutPlan:
+    notes = list(plan.notes)
+    if not any("Gemini" in note for note in notes):
+        notes.append("Plan generated by Gemini using retrieved exercise context.")
+    return plan.model_copy(update={"rag_context": hits, "notes": notes})
+
+
+def _rag_context_json(hits: list[RagHit]) -> str:
+    return "[" + ", ".join(hit.model_dump_json() for hit in hits[:6]) + "]"
