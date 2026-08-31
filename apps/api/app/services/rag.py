@@ -51,39 +51,28 @@ class RagService:
             ]
         return []
 
-    def mobility_exercises(self, profile: UserProfile, recovery_safe: bool = False) -> list[RagHit]:
+    def mobility_exercises(
+        self,
+        profile: UserProfile,
+        recovery_safe: bool = False,
+        focus: str = "general",
+    ) -> list[RagHit]:
         if self.db is not None:
-            query = (
-                "upper legs lower legs body weight assisted band quads hamstrings glutes "
-                "calves stretch mobility soreness recovery knee low load"
-            )
+            query = _mobility_query(focus)
             if profile.injury_history:
                 query += " " + " ".join(profile.injury_history)
             hits = self._search(
                 "exercise_knowledge_base",
                 query,
                 limit=5,
-                prefer_terms=["stretch", "mobility", "assisted", "body weight", "rotation"],
+                prefer_terms=_mobility_prefer_terms(focus),
                 avoid_terms=_recovery_exercise_avoid_terms() if recovery_safe else None,
-                required_any_terms=["stretch", "mobility", "rotation"] if recovery_safe else None,
+                required_any_terms=_mobility_required_terms(focus) if recovery_safe else None,
             )
             if hits:
                 return hits
 
-        return [
-            RagHit(
-                source="exercise_knowledge_base",
-                title="Lower-body mobility reset",
-                snippet="Cat-cow, 90/90 hip switches, couch stretch, and ankle rocks are low-load options.",
-                score=0.88,
-            ),
-            RagHit(
-                source="exercise_knowledge_base",
-                title="Knee-friendly movement substitutions",
-                snippet="Use controlled step-ups, Spanish squat isometrics, or bike intervals when knee irritation appears.",
-                score=0.81,
-            ),
-        ]
+        return _fallback_mobility_hits(focus)
 
     def recovery_meals(self, profile: UserProfile) -> list[RagHit]:
         if self.db is not None:
@@ -282,6 +271,79 @@ def _preference_boost(haystack: str, prefer_terms: list[str] | None) -> float:
         return 0.0
     matches = sum(1 for term in prefer_terms if term in haystack)
     return min(matches * 0.08, 0.24)
+
+
+def _mobility_query(focus: str) -> str:
+    if focus == "upper":
+        return (
+            "upper body shoulders chest back thoracic scapular neck arms band assisted "
+            "stretch mobility rotation soreness recovery low load"
+        )
+    if focus == "lower":
+        return (
+            "upper legs lower legs body weight assisted band quads hamstrings glutes "
+            "calves stretch mobility soreness recovery knee low load"
+        )
+    return (
+        "full body body weight assisted band stretch mobility rotation soreness recovery "
+        "low load thoracic hips shoulders"
+    )
+
+
+def _mobility_prefer_terms(focus: str) -> list[str]:
+    common = ["stretch", "mobility", "assisted", "body weight", "rotation"]
+    if focus == "upper":
+        return [*common, "shoulder", "scapular", "thoracic", "back", "chest"]
+    if focus == "lower":
+        return [*common, "quads", "glutes", "hamstrings", "calves", "hips"]
+    return [*common, "thoracic", "hips", "shoulders"]
+
+
+def _mobility_required_terms(focus: str) -> list[str]:
+    if focus == "upper":
+        return ["stretch", "mobility", "rotation", "shoulder", "scapular", "thoracic"]
+    return ["stretch", "mobility", "rotation"]
+
+
+def _fallback_mobility_hits(focus: str) -> list[RagHit]:
+    if focus == "upper":
+        return [
+            RagHit(
+                source="exercise_knowledge_base",
+                title="Upper-body mobility reset",
+                snippet="Thoracic rotations, wall slides, scapular circles, and pec stretches are low-load options.",
+                score=0.88,
+            ),
+            RagHit(
+                source="exercise_knowledge_base",
+                title="Shoulder-friendly deload substitutions",
+                snippet="Use light band activation and range-of-motion work when upper-body soreness is high.",
+                score=0.81,
+            ),
+        ]
+    if focus == "lower":
+        return [
+            RagHit(
+                source="exercise_knowledge_base",
+                title="Lower-body mobility reset",
+                snippet="Cat-cow, 90/90 hip switches, couch stretch, and ankle rocks are low-load options.",
+                score=0.88,
+            ),
+            RagHit(
+                source="exercise_knowledge_base",
+                title="Knee-friendly movement substitutions",
+                snippet="Use controlled step-ups, Spanish squat isometrics, or bike intervals when knee irritation appears.",
+                score=0.81,
+            ),
+        ]
+    return [
+        RagHit(
+            source="exercise_knowledge_base",
+            title="Full-body mobility reset",
+            snippet="Easy walking, thoracic rotations, hip switches, wall slides, and downshift breathing are low-load options.",
+            score=0.86,
+        )
+    ]
 
 
 def _recovery_exercise_avoid_terms() -> list[str]:

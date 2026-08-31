@@ -2,6 +2,8 @@ from typing import Any, Literal, TypedDict
 
 from app.schemas import (
     DecisionAuditItem,
+    BaselineNutritionDay,
+    BaselineWorkoutDay,
     MorningCheckInRequest,
     NutritionPlan,
     RecoveryReport,
@@ -20,6 +22,9 @@ class FitnessGraphState(TypedDict, total=False):
     db: Any
     profile: UserProfile
     wearable: WearableSnapshot
+    current_day: str
+    baseline_workout: BaselineWorkoutDay | None
+    baseline_nutrition: BaselineNutritionDay | None
     recovery: RecoveryReport
     directives: SupervisorDirectives
     workout: WorkoutPlan | None

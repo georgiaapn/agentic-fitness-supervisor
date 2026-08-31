@@ -1,20 +1,42 @@
+from datetime import datetime
+import re
+
 from langgraph.graph import END, START, StateGraph
+from pydantic import ValidationError
 
 from app.agents.nutritionist import create_nutrition_plan
 from app.agents.recovery import analyze_recovery
 from app.agents.supervisor import coordinate_day
 from app.agents.trainer import create_workout_plan
-from app.schemas import DailyBriefingResponse, DecisionAuditItem, MorningCheckInRequest
+from app.schemas import (
+    BaselineNutritionDay,
+    BaselineWorkoutDay,
+    DailyBriefingResponse,
+    DecisionAuditItem,
+    MorningCheckInRequest,
+    WeeklyNutritionPlan,
+    WorkoutPlan,
+)
 from app.services.llm import get_llm_client
 from app.services.rag import RagService
+from app.services.saved_plans import get_saved_generated_plan
 from app.workflow.state import FitnessGraphState, SpecialistNode
+
+
+WEEK_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
 def load_context_node(state: FitnessGraphState) -> FitnessGraphState:
     request = state["request"]
+    current_day = datetime.now().strftime("%A")
+    baseline_workout = _load_baseline_workout_day(state.get("db"), request.profile.user_id, current_day)
+    baseline_nutrition = _load_baseline_nutrition_day(state.get("db"), request.profile.user_id, current_day)
     return {
         "profile": request.profile,
         "wearable": request.wearable,
+        "current_day": current_day,
+        "baseline_workout": baseline_workout,
+        "baseline_nutrition": baseline_nutrition,
         "workout": None,
         "nutrition": None,
         "audit": [],
@@ -40,13 +62,23 @@ def recovery_node(state: FitnessGraphState) -> FitnessGraphState:
 
 
 def supervisor_node(state: FitnessGraphState) -> FitnessGraphState:
-    directives = coordinate_day(state["profile"], state["wearable"], state["recovery"])
+    directives = coordinate_day(
+        state["profile"],
+        state["wearable"],
+        state["recovery"],
+        current_day=state.get("current_day"),
+        baseline_workout=state.get("baseline_workout"),
+        baseline_nutrition=state.get("baseline_nutrition"),
+    )
     audit = [
         *state.get("audit", []),
         DecisionAuditItem(
             agent="supervisor",
             decision="Selected specialist agents and issued planning directives.",
-            evidence=state["recovery"].constraints or ["No blocking constraints detected."],
+            evidence=[
+                *(state["recovery"].constraints or ["No blocking constraints detected."]),
+                *(_baseline_audit_evidence(state)),
+            ],
         ),
     ]
     return {"directives": directives, "audit": audit}
@@ -66,6 +98,8 @@ def trainer_node(state: FitnessGraphState) -> FitnessGraphState:
         state["directives"],
         rag,
         get_llm_client(),
+        baseline_workout=state.get("baseline_workout"),
+        current_day=state.get("current_day"),
     )
     return {"workout": workout}
 
@@ -77,6 +111,8 @@ def nutritionist_node(state: FitnessGraphState) -> FitnessGraphState:
         state["directives"],
         rag,
         get_llm_client(),
+        baseline_nutrition=state.get("baseline_nutrition"),
+        current_day=state.get("current_day"),
     )
     return {"nutrition": nutrition}
 
@@ -127,6 +163,9 @@ def run_morning_check_in(
     return DailyBriefingResponse(
         profile=final_state["profile"],
         wearable=final_state["wearable"],
+        current_day=final_state.get("current_day"),
+        baseline_workout=final_state.get("baseline_workout"),
+        baseline_nutrition=final_state.get("baseline_nutrition"),
         recovery=final_state["recovery"],
         directives=final_state["directives"],
         workout=final_state.get("workout"),
@@ -134,3 +173,73 @@ def run_morning_check_in(
         audit=final_state["audit"],
         final_message=final_state["final_message"],
     )
+
+
+def _load_baseline_workout_day(
+    db: object | None,
+    user_id: str,
+    current_day: str,
+) -> BaselineWorkoutDay | None:
+    if db is None:
+        return None
+    saved = get_saved_generated_plan(db, user_id, "weekly_workout")
+    if saved is None:
+        return None
+    try:
+        plan = WorkoutPlan.model_validate(saved.payload)
+    except ValidationError:
+        return None
+    return _workout_day_from_plan(plan, current_day)
+
+
+def _load_baseline_nutrition_day(
+    db: object | None,
+    user_id: str,
+    current_day: str,
+) -> BaselineNutritionDay | None:
+    if db is None:
+        return None
+    saved = get_saved_generated_plan(db, user_id, "weekly_nutrition")
+    if saved is None:
+        return None
+    try:
+        plan = WeeklyNutritionPlan.model_validate(saved.payload)
+    except ValidationError:
+        return None
+    day = next((item for item in plan.days if item.day.lower() == current_day.lower()), None)
+    if day is None:
+        return None
+    return BaselineNutritionDay(day=day.day, focus=day.focus, meals=day.meals)
+
+
+def _workout_day_from_plan(plan: WorkoutPlan, current_day: str) -> BaselineWorkoutDay | None:
+    matching_block = next(
+        (block for block in plan.blocks if block.strip().lower().startswith(f"{current_day.lower()}:")),
+        None,
+    )
+    if matching_block is None:
+        index = WEEK_DAYS.index(current_day) if current_day in WEEK_DAYS else 0
+        matching_block = plan.blocks[index] if len(plan.blocks) > index else None
+    if matching_block is None:
+        return None
+
+    title, details = _parse_workout_block(current_day, matching_block)
+    return BaselineWorkoutDay(day=current_day, title=title, details=details)
+
+
+def _parse_workout_block(day: str, block: str) -> tuple[str, list[str]]:
+    without_day = re.sub(rf"^{re.escape(day)}:\s*", "", block.strip(), count=1, flags=re.IGNORECASE)
+    title, separator, details_text = without_day.partition(" - ")
+    if not separator:
+        return without_day or "Planned workout", []
+    details = [item.strip().rstrip(".") for item in details_text.split(";") if item.strip()]
+    return title.strip() or "Planned workout", details
+
+
+def _baseline_audit_evidence(state: FitnessGraphState) -> list[str]:
+    evidence = []
+    if state.get("baseline_workout") is not None:
+        evidence.append(f"today_workout={state['baseline_workout'].title}")
+    if state.get("baseline_nutrition") is not None:
+        evidence.append(f"today_nutrition={state['baseline_nutrition'].focus}")
+    return evidence

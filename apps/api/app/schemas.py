@@ -84,6 +84,12 @@ class WorkoutPlan(BaseModel):
     rag_context: list[RagHit] = Field(default_factory=list)
 
 
+class BaselineWorkoutDay(BaseModel):
+    day: str
+    title: str
+    details: list[str]
+
+
 class NutritionPlan(BaseModel):
     title: str
     calorie_target: int
@@ -108,6 +114,12 @@ class WeeklyNutritionDay(BaseModel):
     meals: list[WeeklyNutritionMeal]
 
 
+class BaselineNutritionDay(BaseModel):
+    day: str
+    focus: str
+    meals: list[WeeklyNutritionMeal]
+
+
 class WeeklyNutritionPlan(BaseModel):
     title: str
     daily_calorie_target: int
@@ -126,6 +138,18 @@ class SavedGeneratedPlanSummary(BaseModel):
     updated_at: str
 
 
+class SavedDailyAdjustmentSummary(BaseModel):
+    id: str
+    user_id: str
+    adjustment_date: str
+    current_day: str
+    recovery_status: str
+    readiness_score: int
+    title: str
+    payload: dict
+    updated_at: str
+
+
 class DecisionAuditItem(BaseModel):
     agent: AgentName
     decision: str
@@ -135,12 +159,19 @@ class DecisionAuditItem(BaseModel):
 class DailyBriefingResponse(BaseModel):
     profile: UserProfile
     wearable: WearableSnapshot
+    current_day: str | None = None
+    baseline_workout: BaselineWorkoutDay | None = None
+    baseline_nutrition: BaselineNutritionDay | None = None
     recovery: RecoveryReport
     directives: SupervisorDirectives
     workout: WorkoutPlan | None
     nutrition: NutritionPlan | None
     audit: list[DecisionAuditItem]
     final_message: str
+
+
+class SaveDailyAdjustmentRequest(BaseModel):
+    briefing: DailyBriefingResponse
 
 
 class AgentRunSummary(BaseModel):

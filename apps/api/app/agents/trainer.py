@@ -1,6 +1,6 @@
 import logging
 
-from app.schemas import RagHit, SupervisorDirectives, UserProfile, WearableSnapshot, WorkoutPlan
+from app.schemas import BaselineWorkoutDay, RagHit, SupervisorDirectives, UserProfile, WearableSnapshot, WorkoutPlan
 from app.services.llm import LlmClient
 from app.services.rag import RagService
 
@@ -13,51 +13,82 @@ def create_workout_plan(
     directives: SupervisorDirectives,
     rag: RagService,
     llm: LlmClient | None = None,
+    baseline_workout: BaselineWorkoutDay | None = None,
+    current_day: str | None = None,
 ) -> WorkoutPlan:
     is_mobility_day = "mobility" in directives.trainer_directive.lower()
-    hits = rag.mobility_exercises(profile, recovery_safe=is_mobility_day)
+    is_downshift_day = "downshift" in directives.trainer_directive.lower() or "reduce load" in directives.trainer_directive.lower()
+    recovery_focus = _recovery_focus(wearable, directives, baseline_workout)
+    hits = rag.mobility_exercises(profile, recovery_safe=is_mobility_day, focus=recovery_focus)
+    if is_mobility_day:
+        focused_hits = _focused_mobility_hits(hits, recovery_focus)
+        hits = focused_hits if focused_hits or recovery_focus in {"upper", "lower"} else hits
 
     if is_mobility_day:
-        selected_blocks = _mobility_blocks_from_rag(hits, wearable.available_minutes)
+        selected_blocks = _mobility_blocks_from_rag(hits, wearable.available_minutes, recovery_focus)
         fallback = WorkoutPlan(
-            title="Lower-body recovery mobility",
+            title=_mobility_title(recovery_focus),
             duration_minutes=min(wearable.available_minutes, 30),
             intensity="low",
             blocks=selected_blocks,
             notes=[
-                "No heavy squats, lunges, leg press, or deadlifts today.",
+                _baseline_note(baseline_workout, current_day),
+                _mobility_safety_note(recovery_focus),
                 "Keep discomfort below 3 out of 10.",
                 "Exercise choices are grounded in the retrieved exercise knowledge base.",
-                "Recovery-safe retrieval excludes loaded squat, lunge, jump, press, and deadlift patterns.",
+                "Recovery-safe retrieval excludes heavy loaded patterns that conflict with today's recovery focus.",
             ],
             rag_context=hits,
         )
-        return _generate_daily_workout_with_llm(profile, wearable, directives, hits, fallback, llm)
+        return _generate_daily_workout_with_llm(
+            profile,
+            wearable,
+            directives,
+            hits,
+            fallback,
+            llm,
+            baseline_workout=baseline_workout,
+            current_day=current_day,
+        )
 
-    selected_blocks = _training_blocks_from_rag(hits, profile)
+    selected_blocks = (
+        _downshift_blocks_from_baseline(baseline_workout)
+        if is_downshift_day and baseline_workout is not None
+        else _training_blocks_from_rag(hits, profile)
+    )
     fallback = WorkoutPlan(
-        title=f"{profile.goal.replace('_', ' ').title()} training session",
+        title=(
+            f"Modified {baseline_workout.title}"
+            if is_downshift_day and baseline_workout is not None
+            else baseline_workout.title if baseline_workout is not None else f"{profile.goal.replace('_', ' ').title()} training session"
+        ),
         duration_minutes=wearable.available_minutes,
-        intensity="moderate",
-        blocks=selected_blocks,
+        intensity="low" if is_downshift_day else "moderate",
+        blocks=selected_blocks if is_downshift_day else baseline_workout.details if baseline_workout is not None and baseline_workout.details else selected_blocks,
         notes=[
+            _baseline_note(baseline_workout, current_day),
+            "Downshifted today's baseline because recovery signals conflict with the planned muscle group." if is_downshift_day else "Followed today's baseline plan.",
             "Adjust load down if RPE exceeds 8 before the final set.",
             "Exercise choices are grounded in the retrieved exercise knowledge base.",
         ],
         rag_context=hits[:1],
     )
-    return _generate_daily_workout_with_llm(profile, wearable, directives, hits, fallback, llm)
+    return _generate_daily_workout_with_llm(
+        profile,
+        wearable,
+        directives,
+        hits,
+        fallback,
+        llm,
+        baseline_workout=baseline_workout,
+        current_day=current_day,
+    )
 
 
-def _mobility_blocks_from_rag(hits: list[RagHit], available_minutes: int) -> list[str]:
-    selected = hits[:4]
+def _mobility_blocks_from_rag(hits: list[RagHit], available_minutes: int, focus: str) -> list[str]:
+    selected = _focused_mobility_hits(hits, focus)[:4]
     if not selected:
-        return [
-            "5 min nasal-breathing walk or easy bike",
-            "2 rounds: cat-cow x 8, 90/90 hip switches x 8 per side",
-            "2 rounds: couch stretch 45 sec per side, ankle rocks x 12 per side",
-            "3 min downshift breathing",
-        ]
+        return _fallback_mobility_blocks(focus)
 
     work_minutes = min(available_minutes, 30)
     practice_time = 45 if work_minutes >= 25 else 30
@@ -68,6 +99,49 @@ def _mobility_blocks_from_rag(hits: list[RagHit], available_minutes: int) -> lis
     )
     blocks.append("3 min downshift breathing")
     return blocks
+
+
+def _fallback_mobility_blocks(focus: str) -> list[str]:
+    if focus == "upper":
+        return [
+            "5 min easy walk with relaxed nasal breathing",
+            "2 rounds: thoracic open-book rotations x 8 per side, cat-cow x 8",
+            "2 rounds: wall slides x 10, scapular circles x 8 each direction",
+            "Doorway pec stretch: 2 x 30 sec per side",
+            "3 min downshift breathing",
+        ]
+    if focus == "lower":
+        return [
+            "5 min nasal-breathing walk or easy bike",
+            "2 rounds: cat-cow x 8, 90/90 hip switches x 8 per side",
+            "2 rounds: couch stretch 45 sec per side, ankle rocks x 12 per side",
+            "3 min downshift breathing",
+        ]
+    return [
+        "5 min easy walk with relaxed nasal breathing",
+        "2 rounds: cat-cow x 8, thoracic rotations x 8 per side",
+        "2 rounds: wall slides x 10, 90/90 hip switches x 8 per side",
+        "3 min downshift breathing",
+    ]
+
+
+def _focused_mobility_hits(hits: list[RagHit], focus: str) -> list[RagHit]:
+    if focus not in {"upper", "lower"}:
+        return hits
+
+    focused = [hit for hit in hits if _hit_matches_focus(hit, focus)]
+    return focused if focused else []
+
+
+def _hit_matches_focus(hit: RagHit, focus: str) -> bool:
+    haystack = f"{hit.title} {hit.snippet}".lower()
+    if focus == "upper":
+        upper_terms = ["upper", "shoulder", "chest", "back", "scapular", "thoracic", "neck", "arm"]
+        lower_only_terms = ["quad", "calf", "hamstring", "glute", "squat", "lunge", "leg"]
+        return any(term in haystack for term in upper_terms) and not any(term in haystack for term in lower_only_terms)
+
+    lower_terms = ["lower", "quad", "calf", "hamstring", "glute", "hip", "ankle", "leg"]
+    return any(term in haystack for term in lower_terms)
 
 
 def _training_blocks_from_rag(hits: list[RagHit], profile: UserProfile) -> list[str]:
@@ -89,6 +163,63 @@ def _training_blocks_from_rag(hits: list[RagHit], profile: UserProfile) -> list[
         f"Accessory movement: {accessory}, {volume} with clean tempo",
         "Conditioning finisher: 8 minutes easy to moderate",
     ]
+
+
+def _recovery_focus(
+    wearable: WearableSnapshot,
+    directives: SupervisorDirectives,
+    baseline_workout: BaselineWorkoutDay | None,
+) -> str:
+    directive = directives.trainer_directive.lower()
+    if "upper-body mobility" in directive or "upper body mobility" in directive:
+        return "upper"
+    if "lower-body mobility" in directive or "lower body mobility" in directive:
+        return "lower"
+    if "full-body mobility" in directive or "full body mobility" in directive:
+        return "general"
+
+    planned_text = ""
+    if baseline_workout is not None:
+        planned_text = " ".join([baseline_workout.title, *baseline_workout.details]).lower()
+
+    upper_terms = ["upper", "push", "pull", "bench", "press", "row", "chest", "shoulder", "back"]
+    lower_terms = ["lower", "legs", "squat", "lunge", "deadlift", "quad", "hamstring", "glute"]
+
+    if any(term in planned_text for term in upper_terms) and wearable.soreness_upper >= wearable.soreness_quads:
+        return "upper"
+    if any(term in planned_text for term in lower_terms) and wearable.soreness_quads >= wearable.soreness_upper:
+        return "lower"
+    if wearable.soreness_upper >= 7 and wearable.soreness_upper >= wearable.soreness_quads:
+        return "upper"
+    if wearable.soreness_quads >= 7:
+        return "lower"
+    return "general"
+
+
+def _mobility_title(focus: str) -> str:
+    if focus == "upper":
+        return "Upper-body recovery mobility"
+    if focus == "lower":
+        return "Lower-body recovery mobility"
+    return "Recovery mobility reset"
+
+
+def _mobility_safety_note(focus: str) -> str:
+    if focus == "upper":
+        return "No heavy pressing, rowing, pulling, or shoulder loading today."
+    if focus == "lower":
+        return "No heavy squats, lunges, leg press, or deadlifts today."
+    return "No heavy loading today; keep the session easy and restorative."
+
+
+def _downshift_blocks_from_baseline(baseline_workout: BaselineWorkoutDay) -> list[str]:
+    adjusted = ["Warm-up: 8 minutes easy mobility and activation"]
+    if baseline_workout.details:
+        adjusted.extend(f"Technique-only: {detail}, reduce load 20-30% and cut one set" for detail in baseline_workout.details[:3])
+    else:
+        adjusted.append(f"Technique-only version of {baseline_workout.title}, reduce load 20-30%")
+    adjusted.append("Cool-down: 5 minutes gentle stretching and breathing")
+    return adjusted
 
 
 def create_weekly_workout_plan(
@@ -185,6 +316,8 @@ def _generate_daily_workout_with_llm(
     hits: list[RagHit],
     fallback: WorkoutPlan,
     llm: LlmClient | None,
+    baseline_workout: BaselineWorkoutDay | None,
+    current_day: str | None,
 ) -> WorkoutPlan:
     if llm is None or not llm.enabled:
         logger.info("Trainer daily plan using deterministic fallback: LLM disabled.")
@@ -203,8 +336,12 @@ def _generate_daily_workout_with_llm(
             f"User profile:\n{profile.model_dump_json()}\n\n"
             f"Wearable and self-report data:\n{wearable.model_dump_json()}\n\n"
             f"Supervisor directives:\n{directives.model_dump_json()}\n\n"
+            f"Saved weekly workout baseline for {current_day or 'today'}:\n"
+            f"{baseline_workout.model_dump_json() if baseline_workout else 'No saved weekly workout baseline found.'}\n\n"
             f"Retrieved exercise context:\n{_rag_context_json(hits)}\n\n"
             "Requirements:\n"
+            "- Treat the saved weekly workout baseline as the starting plan when it exists.\n"
+            "- Explain changes through notes, especially if recovery requires replacing the baseline.\n"
             "- Keep duration_minutes no higher than available_minutes.\n"
             "- Use intensity low, moderate, or high.\n"
             "- Include 3 to 6 workout blocks.\n"
@@ -229,6 +366,12 @@ def _with_rag_context(plan: WorkoutPlan, hits: list[RagHit]) -> WorkoutPlan:
     if not any("Gemini" in note for note in notes):
         notes.append("Plan generated by Gemini using retrieved exercise context.")
     return plan.model_copy(update={"rag_context": hits, "notes": notes})
+
+
+def _baseline_note(baseline_workout: BaselineWorkoutDay | None, current_day: str | None) -> str:
+    if baseline_workout is None:
+        return "No saved weekly workout baseline was found, so today's session was generated from profile and recovery data."
+    return f"Started from the saved {current_day or baseline_workout.day} weekly workout baseline: {baseline_workout.title}."
 
 
 def _rag_context_json(hits: list[RagHit]) -> str:
