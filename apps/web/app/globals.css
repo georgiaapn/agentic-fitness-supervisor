@@ -7,11 +7,11 @@
   --color-slate: #34404a;
   --color-surface: #f7f8f5;
   --color-panel: #ffffff;
-  --color-primary: #167e76;
+  --color-primary: #1428ff;
   --color-recovery: #c94c2e;
   --color-nutrition: #6d8f2f;
   --color-trainer: #315d9a;
-  --color-border: #d8ded8;
+  --color-border: #b8d4ec;
   --radius-control: 8px;
   --radius-briefing: 12px;
 }
@@ -30,7 +30,7 @@ body {
   margin: 0;
   color: var(--color-ink);
   background:
-    linear-gradient(90deg, rgba(22, 126, 118, 0.06), transparent 35%),
+    linear-gradient(90deg, rgba(20, 40, 255, 0.06), transparent 35%),
     var(--color-surface);
   font-family: Inter, system-ui, sans-serif;
 }
@@ -105,7 +105,7 @@ button:disabled {
 }
 
 *:focus-visible {
-  outline: 3px solid rgba(22, 126, 118, 0.35);
+  outline: 3px solid rgba(20, 40, 255, 0.35);
   outline-offset: 2px;
 }
 
