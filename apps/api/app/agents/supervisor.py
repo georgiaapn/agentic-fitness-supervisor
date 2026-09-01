@@ -23,11 +23,18 @@ def coordinate_day(
 
     if wearable.pain_level >= 8:
         return SupervisorDirectives(
-            selected_agents=["recovery", "nutritionist"],
-            skipped_agents=["trainer"],
-            trainer_directive="Do not create a training session. Provide safety-first rest guidance only.",
-            nutritionist_directive="Create a recovery-supportive eating plan with normal protein.",
-            rationale="Pain level is high enough to avoid exercise prescription in the MVP.",
+            selected_agents=["trainer", "nutritionist"],
+            skipped_agents=[],
+            trainer_directive=(
+                "Do not prescribe loaded training today. Replace the planned workout with safety-first "
+                "rest guidance and a 20 minute low-load full-body mobility session only if movement is pain-free."
+            ),
+            nutritionist_directive=(
+                "Use the saved weekly nutrition baseline as today's starting point, but adjust it for a no-training "
+                "recovery day: reduce calories slightly for lower activity, keep protein high, and shift meals toward "
+                "recovery-supportive options."
+            ),
+            rationale="Pain level is high enough to block loaded training while still producing recovery guidance.",
         )
 
     baseline_conflict = _baseline_recovery_conflict(wearable, baseline_workout)

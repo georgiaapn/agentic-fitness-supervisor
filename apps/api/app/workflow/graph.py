@@ -120,8 +120,8 @@ def nutritionist_node(state: FitnessGraphState) -> FitnessGraphState:
 def aggregate_node(state: FitnessGraphState) -> FitnessGraphState:
     recovery = state["recovery"]
     final_message = (
-        "Your plan was adjusted for recovery today. Heavy lower-body work is blocked, "
-        "mobility is prioritized, and nutrition stays protein-forward."
+        "Your plan was adjusted for recovery today. Fatiguing work is reduced, "
+        "recovery-safe movement is prioritized, and nutrition stays protein-forward."
         if recovery.status == "RED"
         else "Your readiness supports the planned training day with normal load management."
     )

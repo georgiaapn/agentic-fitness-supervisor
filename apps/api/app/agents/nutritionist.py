@@ -28,8 +28,13 @@ def create_nutrition_plan(
     hits = rag.recovery_meals(profile)
     base_calories = int((10 * profile.weight_kg + 6.25 * profile.height_cm - 5 * profile.age + 5) * 1.45)
     protein_g = int(profile.weight_kg * 1.8)
+    directive_text = directives.nutritionist_directive.lower()
+    is_recovery_day = any(
+        term in directive_text
+        for term in ["lower activity", "no-training", "no training", "recovery day", "recovery-supportive"]
+    )
 
-    if "lower activity" in directives.nutritionist_directive.lower():
+    if is_recovery_day:
         calorie_target = base_calories - 200
         title = "Recovery-focused nutrition day"
     elif profile.goal == "fat_loss":
@@ -43,10 +48,15 @@ def create_nutrition_plan(
         title=title,
         calorie_target=calorie_target,
         protein_g=protein_g,
-        meals=_daily_meals(baseline_nutrition, hits),
+        meals=_daily_meals(baseline_nutrition, hits, recovery_day=is_recovery_day),
         notes=[
             _baseline_note(baseline_nutrition, current_day),
-            "Keep hydration steady and add electrolytes if morning heart rate remains elevated.",
+            (
+                "Adjusted today's baseline for lower training demand: keep protein steady, reduce starch portions slightly, "
+                "and emphasize produce, omega-3 fats, and hydration."
+                if is_recovery_day
+                else "Keep hydration steady and add electrolytes if morning heart rate remains elevated."
+            ),
             "Respect dietary restrictions before final meal selection.",
             "Meal choices are grounded in the retrieved nutrition knowledge base.",
         ],
@@ -77,6 +87,8 @@ def create_nutrition_plan(
             "- Keep protein_g within 15g of the calculated target.\n"
             "- Include 4 meals or meal slots.\n"
             "- Treat the saved weekly nutrition baseline as the starting plan when it exists.\n"
+            "- If the Supervisor directive mentions lower activity, no training, or recovery day, do not simply copy the baseline meals."
+            " Make a visible adjustment: reduce starchy carb portions slightly, keep protein high, and choose recovery-supportive foods.\n"
             "- Explain changes through notes, especially if recovery or lower activity changes the baseline.\n"
             "- Respect dietary restrictions.\n"
             "- Include 2 to 5 concise notes.\n"
@@ -105,9 +117,25 @@ def create_nutrition_plan(
     return generated.model_copy(update={"rag_context": hits, "notes": notes})
 
 
-def _daily_meals(baseline_nutrition: BaselineNutritionDay | None, hits: list[RagHit]) -> list[str]:
+def _daily_meals(
+    baseline_nutrition: BaselineNutritionDay | None,
+    hits: list[RagHit],
+    *,
+    recovery_day: bool = False,
+) -> list[str]:
     if baseline_nutrition is None or not baseline_nutrition.meals:
         return _meals_from_rag(hits)
+
+    if recovery_day:
+        return [
+            (
+                f"{meal.meal_type}: Adjusted {meal.name} "
+                f"({meal.calories} kcal baseline) - keep the protein source, reduce starchy carbs by about 20%, "
+                "and add colorful vegetables or fruit."
+            )
+            for meal in baseline_nutrition.meals
+        ]
+
     return [
         (
             f"{meal.meal_type}: {meal.name} "
