@@ -75,6 +75,22 @@ class RagService:
 
         return _fallback_mobility_hits(focus)
 
+    def training_exercises(self, profile: UserProfile) -> list[RagHit]:
+        if self.db is not None:
+            query = _training_query(profile)
+            hits = self._search(
+                "exercise_knowledge_base",
+                query,
+                limit=8,
+                prefer_terms=_training_prefer_terms(profile),
+                avoid_terms=_training_avoid_terms(),
+                allowed_equipment=_allowed_exercise_equipment(profile),
+            )
+            if hits:
+                return hits
+
+        return _fallback_training_hits(profile)
+
     def recovery_meals(self, profile: UserProfile) -> list[RagHit]:
         if self.db is not None:
             query = "healthy recipe high protein recovery balanced meal diet cuisine"
@@ -316,6 +332,73 @@ def _mobility_required_terms(focus: str) -> list[str]:
     if focus == "upper":
         return ["stretch", "mobility", "rotation", "shoulder", "scapular", "thoracic"]
     return ["stretch", "mobility", "rotation"]
+
+
+def _training_query(profile: UserProfile) -> str:
+    goal_terms = {
+        "fat_loss": "compound strength circuit conditioning squat hinge press row core",
+        "hypertrophy": "hypertrophy muscle building press row squat lunge hinge curl extension",
+        "strength": "strength compound barbell dumbbell squat hinge press row deadlift",
+        "general_fitness": "full body strength conditioning squat hinge press row carry core",
+    }
+    query = goal_terms.get(profile.goal, goal_terms["general_fitness"])
+    equipment = " ".join(profile.equipment_available)
+    injuries = " ".join(profile.injury_history)
+    return f"{query} {equipment} {injuries}".strip()
+
+
+def _training_prefer_terms(profile: UserProfile) -> list[str]:
+    terms = ["squat", "press", "row", "lunge", "deadlift", "curl", "raise", "pull", "push", "bridge", "plank"]
+    if profile.goal == "fat_loss":
+        terms.extend(["circuit", "conditioning", "bodyweight"])
+    if profile.goal == "strength":
+        terms.extend(["barbell", "dumbbell"])
+    return terms
+
+
+def _training_avoid_terms() -> list[str]:
+    return [
+        "assisted",
+        "stretch",
+        "mobility",
+        "rotation",
+        "warm-up",
+        "warmup",
+        "cooldown",
+        "cool-down",
+        "flexibility",
+    ]
+
+
+def _fallback_training_hits(profile: UserProfile) -> list[RagHit]:
+    allowed = _allowed_exercise_equipment(profile)
+    equipment_label = ", ".join(profile.equipment_available) or "bodyweight"
+    options = [
+        ("Barbell back squat", "Barbell squat pattern for lower-body strength.", "barbell"),
+        ("Barbell Romanian deadlift", "Hip hinge pattern for posterior-chain strength.", "barbell"),
+        ("Barbell bench press", "Horizontal press pattern for upper-body strength.", "barbell"),
+        ("Dumbbell goblet squat", "Dumbbell squat pattern for lower-body volume.", "dumbbell"),
+        ("Dumbbell row", "Upper-body pull pattern for back strength.", "dumbbell"),
+        ("Dumbbell shoulder press", "Vertical press pattern for shoulders and triceps.", "dumbbell"),
+        ("Bodyweight reverse lunge", "Single-leg lower-body pattern using bodyweight.", "body weight"),
+        ("Push-up", "Bodyweight horizontal press pattern.", "body weight"),
+        ("Plank", "Bodyweight core stability drill.", "body weight"),
+    ]
+    hits = [
+        RagHit(source="exercise_knowledge_base", title=title, snippet=snippet, score=0.82)
+        for title, snippet, equipment in options
+        if equipment in allowed
+    ]
+    if hits:
+        return hits[:8]
+    return [
+        RagHit(
+            source="exercise_knowledge_base",
+            title="Bodyweight full-body circuit",
+            snippet=f"Use squat, hinge, push, pull, and core patterns with available equipment: {equipment_label}.",
+            score=0.78,
+        )
+    ]
 
 
 def _fallback_mobility_hits(focus: str) -> list[RagHit]:

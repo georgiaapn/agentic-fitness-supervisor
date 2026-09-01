@@ -345,7 +345,10 @@ export default function Home() {
   const hasWorkoutBaseline = workoutPlan !== null || savedPlans.some((plan) => plan.plan_type === "weekly_workout");
   const hasNutritionBaseline =
     nutritionPlan !== null || savedPlans.some((plan) => plan.plan_type === "weekly_nutrition");
-  const canRunCheckIn = hasWorkoutBaseline && hasNutritionBaseline;
+  const todayDateKey = useMemo(() => localDateKey(), []);
+  const todayAdjustment = savedDailyAdjustments.find((adjustment) => adjustment.adjustment_date === todayDateKey);
+  const hasTodayAdjustment = todayAdjustment !== undefined;
+  const canRunCheckIn = hasWorkoutBaseline && hasNutritionBaseline && !hasTodayAdjustment;
 
   async function generateWorkoutPlan() {
     setRunState("running");
@@ -425,20 +428,36 @@ export default function Home() {
   }
 
   function openCheckIn() {
+    const missingPlans = [
+      hasWorkoutBaseline ? null : "workout plan",
+      hasNutritionBaseline ? null : "diet plan"
+    ].filter(Boolean);
+
+    if (missingPlans.length > 0) {
+      setToast({
+        tone: "info",
+        message: `Generate your ${missingPlans.join(" and ")} first, then run the morning check-in.`
+      });
+      return;
+    }
+
+    if (hasTodayAdjustment) {
+      setToast({
+        tone: "info",
+        message: "Today's adjustment is already saved. Open Generated Plans to review or delete it before checking in again."
+      });
+      return;
+    }
+
     if (canRunCheckIn) {
       setToast(null);
       setDialogMode("checkin");
       return;
     }
 
-    const missingPlans = [
-      hasWorkoutBaseline ? null : "workout plan",
-      hasNutritionBaseline ? null : "diet plan"
-    ].filter(Boolean);
-
     setToast({
       tone: "info",
-      message: `Generate your ${missingPlans.join(" and ")} first, then run the morning check-in.`
+      message: "Check-in is not available right now."
     });
   }
 
@@ -481,6 +500,25 @@ export default function Home() {
       setToast({ tone: "success", message: "Saved plan deleted." });
     } catch (requestError) {
       setToast({ tone: "error", message: errorMessage(requestError, "Unable to delete saved plan.") });
+    }
+  }
+
+  async function deleteDailyAdjustment(adjustment: SavedDailyAdjustment) {
+    setError(null);
+
+    try {
+      const response = await fetch(`${apiUrl()}/api/profile/${profile.user_id}/daily-adjustments/${adjustment.id}`, {
+        method: "DELETE"
+      });
+
+      if (!response.ok) throw new Error("Daily adjustment could not be deleted.");
+
+      setSavedDailyAdjustments((adjustments) =>
+        adjustments.filter((savedAdjustment) => savedAdjustment.id !== adjustment.id)
+      );
+      setToast({ tone: "success", message: "Saved adjustment deleted." });
+    } catch (requestError) {
+      setToast({ tone: "error", message: errorMessage(requestError, "Unable to delete saved adjustment.") });
     }
   }
 
@@ -658,6 +696,7 @@ export default function Home() {
                   }
                 }}
                 onDeletePlan={deleteGeneratedPlan}
+                onDeleteAdjustment={deleteDailyAdjustment}
                 onOpenAdjustment={(adjustment) => {
                   if (isDailyBriefingPayload(adjustment.payload)) {
                     setBriefing(adjustment.payload);
@@ -1181,16 +1220,20 @@ function SavedPlansPanel({
   dailyAdjustments,
   onOpenPlan,
   onDeletePlan,
+  onDeleteAdjustment,
   onOpenAdjustment
 }: {
   plans: SavedGeneratedPlan[];
   dailyAdjustments: SavedDailyAdjustment[];
   onOpenPlan: (plan: SavedGeneratedPlan) => void;
   onDeletePlan: (plan: SavedGeneratedPlan) => Promise<void>;
+  onDeleteAdjustment: (adjustment: SavedDailyAdjustment) => Promise<void>;
   onOpenAdjustment: (adjustment: SavedDailyAdjustment) => void;
 }) {
   const [confirmingPlanId, setConfirmingPlanId] = useState<string | null>(null);
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null);
+  const [confirmingAdjustmentId, setConfirmingAdjustmentId] = useState<string | null>(null);
+  const [deletingAdjustmentId, setDeletingAdjustmentId] = useState<string | null>(null);
 
   if (plans.length === 0 && dailyAdjustments.length === 0) {
     return (
@@ -1305,13 +1348,59 @@ function SavedPlansPanel({
                     <p className="mt-2 text-xs text-slate">Saved {formatDateTime(adjustment.updated_at)}</p>
                   </div>
                 </div>
-                <button
-                  className="mt-5 inline-flex min-h-11 items-center justify-center rounded-control bg-[#111820] px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(6,26,46,0.22)] transition hover:-translate-y-0.5 hover:bg-black hover:shadow-[0_16px_30px_rgba(6,26,46,0.28)] active:translate-y-0"
-                  onClick={() => onOpenAdjustment(adjustment)}
-                  type="button"
-                >
-                  Open adjustment
-                </button>
+                {confirmingAdjustmentId === adjustment.id ? (
+                  <div className="mt-5 rounded-control border border-recovery/30 bg-[#FFF4F0]/75 p-3">
+                    <p className="text-xs leading-5 text-recovery">
+                      Delete this saved adjustment? Your weekly baselines will stay unchanged.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-control bg-recovery px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_20px_rgba(201,76,46,0.2)] transition hover:-translate-y-0.5 hover:bg-[#A83C25] disabled:cursor-not-allowed disabled:opacity-70 active:translate-y-0"
+                        disabled={deletingAdjustmentId === adjustment.id}
+                        onClick={async () => {
+                          setDeletingAdjustmentId(adjustment.id);
+                          await onDeleteAdjustment(adjustment);
+                          setDeletingAdjustmentId(null);
+                          setConfirmingAdjustmentId(null);
+                        }}
+                        type="button"
+                      >
+                        {deletingAdjustmentId === adjustment.id ? (
+                          <Loader2 className="animate-spin" size={16} aria-hidden="true" />
+                        ) : (
+                          <Trash2 size={16} aria-hidden="true" />
+                        )}
+                        Delete adjustment
+                      </button>
+                      <button
+                        className="inline-flex min-h-10 items-center justify-center rounded-control border border-[#17202A]/20 bg-white/70 px-4 py-2 text-sm font-semibold text-ink transition hover:-translate-y-0.5 hover:border-[#1428FF] hover:bg-white active:translate-y-0"
+                        disabled={deletingAdjustmentId === adjustment.id}
+                        onClick={() => setConfirmingAdjustmentId(null)}
+                        type="button"
+                      >
+                        Keep adjustment
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    <button
+                      className="inline-flex min-h-11 items-center justify-center rounded-control bg-[#111820] px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(6,26,46,0.22)] transition hover:-translate-y-0.5 hover:bg-black hover:shadow-[0_16px_30px_rgba(6,26,46,0.28)] active:translate-y-0"
+                      onClick={() => onOpenAdjustment(adjustment)}
+                      type="button"
+                    >
+                      Open adjustment
+                    </button>
+                    <button
+                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-recovery/35 bg-white/60 px-4 py-2 text-sm font-semibold text-recovery transition hover:-translate-y-0.5 hover:bg-[#FFF4F0] active:translate-y-0"
+                      onClick={() => setConfirmingAdjustmentId(adjustment.id)}
+                      type="button"
+                    >
+                      <Trash2 size={16} aria-hidden="true" />
+                      Delete
+                    </button>
+                  </div>
+                )}
               </article>
             ))}
           </div>
@@ -1908,6 +1997,11 @@ function formatDateTime(value: string): string {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(date);
+}
+
+function localDateKey(date = new Date()): string {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 10);
 }
 
 function normalizeProfile(profile: DailyBriefing["profile"]): UserProfile {

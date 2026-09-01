@@ -1,4 +1,5 @@
 from datetime import date
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -66,6 +67,26 @@ def list_saved_daily_adjustments(
         .limit(min(limit, 50))
     ).all()
     return [_to_summary(adjustment) for adjustment in adjustments]
+
+
+def delete_saved_daily_adjustment(db: Session, user_id: str, adjustment_id: str) -> bool:
+    try:
+        parsed_adjustment_id = UUID(adjustment_id)
+    except ValueError:
+        return False
+
+    adjustment = db.scalar(
+        select(SavedDailyAdjustment)
+        .where(SavedDailyAdjustment.user_id == user_id)
+        .where(SavedDailyAdjustment.id == parsed_adjustment_id)
+        .limit(1)
+    )
+    if adjustment is None:
+        return False
+
+    db.delete(adjustment)
+    db.commit()
+    return True
 
 
 def _to_summary(adjustment: SavedDailyAdjustment) -> SavedDailyAdjustmentSummary:

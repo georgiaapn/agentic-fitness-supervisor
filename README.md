@@ -178,6 +178,7 @@ GET /api/profile/{user_id}/generated-plans
 DELETE /api/profile/{user_id}/generated-plans/{plan_id}
 GET /api/profile/{user_id}/daily-adjustments
 POST /api/profile/{user_id}/daily-adjustments
+DELETE /api/profile/{user_id}/daily-adjustments/{adjustment_id}
 ```
 
 Agent run inspection:

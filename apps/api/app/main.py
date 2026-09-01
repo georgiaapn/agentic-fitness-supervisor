@@ -29,7 +29,11 @@ from app.schemas import (
     WorkoutPlan,
 )
 from app.services.persistence import persist_daily_briefing
-from app.services.daily_adjustments import list_saved_daily_adjustments, upsert_saved_daily_adjustment
+from app.services.daily_adjustments import (
+    delete_saved_daily_adjustment,
+    list_saved_daily_adjustments,
+    upsert_saved_daily_adjustment,
+)
 from app.services.profiles import get_profile, upsert_profile
 from app.services.saved_plans import delete_saved_generated_plan, list_saved_generated_plans, upsert_saved_generated_plan
 from app.services.llm import get_llm_client
@@ -236,6 +240,20 @@ def save_daily_adjustment(
         payload=adjustment.payload,
         updated_at=adjustment.updated_at.isoformat(),
     )
+
+
+@app.delete("/api/profile/{user_id}/daily-adjustments/{adjustment_id}")
+def delete_daily_adjustment(
+    user_id: str,
+    adjustment_id: str,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, str]:
+    if not settings.persistence_enabled:
+        return {"status": "deleted"}
+    deleted = delete_saved_daily_adjustment(db, user_id, adjustment_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Saved daily adjustment not found.")
+    return {"status": "deleted"}
 
 
 @app.get("/api/profile/{user_id}", response_model=UserProfile)
