@@ -26,6 +26,7 @@ from app.schemas import (
     SupervisorDirectives,
     UserProfile,
     WeeklyNutritionPlan,
+    WeeklyWorkoutPlan,
     WorkoutPlan,
 )
 from app.services.persistence import persist_daily_briefing
@@ -98,11 +99,11 @@ def simulate_morning_check_in(
     return briefing
 
 
-@app.post("/api/plans/workout/weekly", response_model=WorkoutPlan)
+@app.post("/api/plans/workout/weekly", response_model=WeeklyWorkoutPlan)
 def generate_weekly_workout_plan(
     profile: UserProfile,
     db: Annotated[Session, Depends(get_db)],
-) -> WorkoutPlan:
+) -> WeeklyWorkoutPlan:
     if settings.persistence_enabled:
         saved_profile = get_profile(db, profile.user_id)
         if saved_profile is not None:

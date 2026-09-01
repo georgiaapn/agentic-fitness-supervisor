@@ -109,6 +109,27 @@ type PlanResponse = {
   rag_context?: RagContext;
 };
 
+type WeeklyWorkoutExercise = {
+  name: string;
+  prescription: string;
+  notes?: string | null;
+};
+
+type WeeklyWorkoutDay = {
+  day: string;
+  title: string;
+  exercises: WeeklyWorkoutExercise[];
+};
+
+type WeeklyWorkoutResponse = {
+  title: string;
+  duration_minutes: number;
+  intensity: string;
+  days: WeeklyWorkoutDay[];
+  notes: string[];
+  rag_context?: RagContext;
+};
+
 type NutritionResponse = {
   title: string;
   calorie_target: number;
@@ -279,7 +300,7 @@ export default function Home() {
     available_minutes: fallbackWearable.available_minutes
   });
   const [briefing, setBriefing] = useState<DailyBriefing>(fallbackBriefing);
-  const [workoutPlan, setWorkoutPlan] = useState<PlanResponse | null>(null);
+  const [workoutPlan, setWorkoutPlan] = useState<WeeklyWorkoutResponse | null>(null);
   const [nutritionPlan, setNutritionPlan] = useState<WeeklyNutritionResponse | null>(null);
   const [savedPlans, setSavedPlans] = useState<SavedGeneratedPlan[]>([]);
   const [savedDailyAdjustments, setSavedDailyAdjustments] = useState<SavedDailyAdjustment[]>([]);
@@ -361,7 +382,7 @@ export default function Home() {
         body: JSON.stringify(profile)
       });
       if (!response.ok) throw new Error("Workout plan could not be generated.");
-      const data = (await response.json()) as PlanResponse;
+      const data = (await response.json()) as WeeklyWorkoutResponse;
       setWorkoutPlan(data);
       setSavedPlans(await fetchSavedPlans(profile.user_id));
       setDialogMode("workout");
@@ -686,8 +707,9 @@ export default function Home() {
                 plans={savedPlans}
                 dailyAdjustments={savedDailyAdjustments}
                 onOpenPlan={(plan) => {
-                  if (plan.plan_type === "weekly_workout" && isWorkoutPlanPayload(plan.payload)) {
-                    setWorkoutPlan(plan.payload);
+                  const savedWorkout = normalizeSavedWorkoutPlan(plan.payload);
+                  if (plan.plan_type === "weekly_workout" && savedWorkout) {
+                    setWorkoutPlan(savedWorkout);
                     setDialogMode("workout");
                   }
                   if (plan.plan_type === "weekly_nutrition" && isWeeklyNutritionPayload(plan.payload)) {
@@ -1040,8 +1062,8 @@ function TodayBaseline({ briefing }: { briefing: DailyBriefing }) {
   );
 }
 
-function WeeklyWorkoutPlan({ plan }: { plan: PlanResponse }) {
-  const days = parseWeeklyPlan(plan.blocks);
+function WeeklyWorkoutPlan({ plan }: { plan: WeeklyWorkoutResponse }) {
+  const days = normalizeWorkoutDays(plan.days);
   const notes = userFacingNotes(plan.notes);
 
   return (
@@ -1092,13 +1114,18 @@ function WeeklyWorkoutPlan({ plan }: { plan: PlanResponse }) {
                     {day.title}
                   </p>
                   <ul className="mt-4 space-y-2">
-                    {day.details.map((detail, index) => (
+                    {day.exercises.map((exercise, index) => (
                       <li
                         className="grid grid-cols-[10px_1fr] gap-2 text-xs leading-5 text-slate"
-                        key={`${day.day}-${detail}-${index}`}
+                        key={`${day.day}-${exercise.name}-${exercise.prescription}-${index}`}
                       >
                         <span className="mt-2 h-1.5 w-1.5 rounded-full bg-[#1428FF]/70" />
-                        <span>{detail}</span>
+                        <span>
+                          <span className="font-semibold text-ink">{exercise.name}</span>
+                          {" "}
+                          {exercise.prescription}
+                          {exercise.notes ? ` (${exercise.notes})` : ""}
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -1717,6 +1744,17 @@ function parseWeeklyPlan(blocks: string[]): WeeklyDayPlan[] {
   });
 }
 
+function normalizeWorkoutDays(days: WeeklyWorkoutDay[]): WeeklyWorkoutDay[] {
+  return weekDays.map((day) => {
+    const matchingDay = days.find((item) => item.day.trim().toLowerCase() === day.toLowerCase());
+    return matchingDay ?? {
+      day,
+      title: "Rest or recovery",
+      exercises: []
+    };
+  });
+}
+
 function normalizeNutritionDays(days: WeeklyNutritionDay[]): WeeklyNutritionDay[] {
   return weekDays.map((day) => {
     const matchingDay = days.find((item) => item.day.trim().toLowerCase() === day.toLowerCase());
@@ -1758,7 +1796,25 @@ function splitWorkoutDetails(value: string): string[] {
     .slice(0, 6);
 }
 
-function downloadWorkoutPdf(plan: PlanResponse, days: WeeklyDayPlan[]) {
+function weeklyWorkoutFromLegacy(plan: PlanResponse): WeeklyWorkoutResponse {
+  return {
+    title: plan.title,
+    duration_minutes: plan.duration_minutes,
+    intensity: plan.intensity,
+    days: parseWeeklyPlan(plan.blocks).map((day) => ({
+      day: day.day,
+      title: day.title,
+      exercises: day.details.map((detail) => ({
+        name: detail,
+        prescription: ""
+      }))
+    })),
+    notes: plan.notes,
+    rag_context: plan.rag_context
+  };
+}
+
+function downloadWorkoutPdf(plan: WeeklyWorkoutResponse, days: WeeklyWorkoutDay[]) {
   const pdf = createTextPdf(workoutPdfLines(plan, days));
   const pdfBuffer = pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength) as ArrayBuffer;
   const url = URL.createObjectURL(new Blob([pdfBuffer], { type: "application/pdf" }));
@@ -1784,7 +1840,7 @@ function downloadNutritionPdf(plan: WeeklyNutritionResponse, days: WeeklyNutriti
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function workoutPdfLines(plan: PlanResponse, days: WeeklyDayPlan[]): string[] {
+function workoutPdfLines(plan: WeeklyWorkoutResponse, days: WeeklyWorkoutDay[]): string[] {
   const notes = userFacingNotes(plan.notes);
   return [
     plan.title,
@@ -1792,7 +1848,10 @@ function workoutPdfLines(plan: PlanResponse, days: WeeklyDayPlan[]): string[] {
     "",
     ...days.flatMap((day) => [
       `${day.day}: ${day.title}`,
-      ...day.details.map((detail) => `- ${detail}`),
+      ...day.exercises.map(
+        (exercise) =>
+          `- ${exercise.name}: ${exercise.prescription}${exercise.notes ? ` (${exercise.notes})` : ""}`
+      ),
       ""
     ]),
     ...(notes.length > 0 ? ["Notes", ...notes.map((note) => `- ${note}`)] : [])
@@ -1951,7 +2010,23 @@ async function fetchSavedDailyAdjustments(userId: string): Promise<SavedDailyAdj
   }
 }
 
-function isWorkoutPlanPayload(payload: Record<string, unknown>): payload is PlanResponse {
+function normalizeSavedWorkoutPlan(payload: Record<string, unknown>): WeeklyWorkoutResponse | null {
+  if (isWeeklyWorkoutPayload(payload)) return payload;
+  if (isLegacyWorkoutPlanPayload(payload)) return weeklyWorkoutFromLegacy(payload);
+  return null;
+}
+
+function isWeeklyWorkoutPayload(payload: Record<string, unknown>): payload is WeeklyWorkoutResponse {
+  return (
+    typeof payload.title === "string" &&
+    typeof payload.duration_minutes === "number" &&
+    typeof payload.intensity === "string" &&
+    Array.isArray(payload.days) &&
+    Array.isArray(payload.notes)
+  );
+}
+
+function isLegacyWorkoutPlanPayload(payload: Record<string, unknown>): payload is PlanResponse {
   return (
     typeof payload.title === "string" &&
     typeof payload.duration_minutes === "number" &&

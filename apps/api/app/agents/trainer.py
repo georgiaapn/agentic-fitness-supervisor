@@ -1,6 +1,16 @@
 import logging
 
-from app.schemas import BaselineWorkoutDay, RagHit, SupervisorDirectives, UserProfile, WearableSnapshot, WorkoutPlan
+from app.schemas import (
+    BaselineWorkoutDay,
+    RagHit,
+    SupervisorDirectives,
+    UserProfile,
+    WearableSnapshot,
+    WeeklyWorkoutDay,
+    WeeklyWorkoutExercise,
+    WeeklyWorkoutPlan,
+    WorkoutPlan,
+)
 from app.services.llm import LlmClient
 from app.services.rag import RagService
 
@@ -226,7 +236,7 @@ def create_weekly_workout_plan(
     profile: UserProfile,
     rag: RagService,
     llm: LlmClient | None = None,
-) -> WorkoutPlan:
+) -> WeeklyWorkoutPlan:
     hits = rag.training_exercises(profile)
     exercises = [hit.title for hit in hits[:5]]
     while len(exercises) < 5:
@@ -234,38 +244,73 @@ def create_weekly_workout_plan(
 
     goal = profile.goal.replace("_", " ")
     equipment = _available_equipment_text(profile)
-    fallback = WorkoutPlan(
+    fallback = WeeklyWorkoutPlan(
         title=f"Weekly {goal} training plan",
         duration_minutes=45,
         intensity="moderate",
-        blocks=[
-            (
-                f"Monday: Lower-body strength - {exercises[0]}: 3 x 8-10 at RPE 7; "
-                f"{exercises[1]}: 3 x 8-10; Plank: 3 x 30 sec."
+        days=[
+            WeeklyWorkoutDay(
+                day="Monday",
+                title="Lower-body strength",
+                exercises=[
+                    WeeklyWorkoutExercise(name=exercises[0], prescription="3 x 8-10 at RPE 7"),
+                    WeeklyWorkoutExercise(name=exercises[1], prescription="3 x 8-10"),
+                    WeeklyWorkoutExercise(name="Plank", prescription="3 x 30 sec"),
+                ],
             ),
-            (
-                f"Tuesday: Upper-body hypertrophy - {exercises[2]}: 3 x 10-12; "
-                f"{exercises[3]}: 3 x 10 per side; Push-up: 3 x 8-12."
+            WeeklyWorkoutDay(
+                day="Tuesday",
+                title="Upper-body hypertrophy",
+                exercises=[
+                    WeeklyWorkoutExercise(name=exercises[2], prescription="3 x 10-12"),
+                    WeeklyWorkoutExercise(name=exercises[3], prescription="3 x 10 per side"),
+                    WeeklyWorkoutExercise(name="Push-up", prescription="3 x 8-12"),
+                ],
             ),
-            (
-                "Wednesday: Zone 2 cardio - Easy bike or incline walk: 30-40 min; "
-                "Core plank: 3 x 30 sec; Hip mobility flow: 8 min."
+            WeeklyWorkoutDay(
+                day="Wednesday",
+                title="Zone 2 cardio",
+                exercises=[
+                    WeeklyWorkoutExercise(name="Easy bike or incline walk", prescription="30-40 min"),
+                    WeeklyWorkoutExercise(name="Core plank", prescription="3 x 30 sec"),
+                    WeeklyWorkoutExercise(name="Hip mobility flow", prescription="8 min"),
+                ],
             ),
-            (
-                f"Thursday: Full-body session - {exercises[0]}: 3 x 8; "
-                f"{exercises[4]}: 3 x 10; Dumbbell reverse fly: 3 x 12."
+            WeeklyWorkoutDay(
+                day="Thursday",
+                title="Full-body session",
+                exercises=[
+                    WeeklyWorkoutExercise(name=exercises[0], prescription="3 x 8"),
+                    WeeklyWorkoutExercise(name=exercises[4], prescription="3 x 10"),
+                    WeeklyWorkoutExercise(name="Dumbbell reverse fly", prescription="3 x 12"),
+                ],
             ),
-            (
-                f"Friday: Lower-body volume - {exercises[1]}: 3 x 10; "
-                "Split squat variation: 3 x 8 per side; Hamstring curl: 3 x 12."
+            WeeklyWorkoutDay(
+                day="Friday",
+                title="Lower-body volume",
+                exercises=[
+                    WeeklyWorkoutExercise(name=exercises[1], prescription="3 x 10"),
+                    WeeklyWorkoutExercise(name="Split squat variation", prescription="3 x 8 per side"),
+                    WeeklyWorkoutExercise(name="Hamstring curl", prescription="3 x 12"),
+                ],
             ),
-            (
-                "Saturday: Conditioning and core - Dumbbell circuit: 5 rounds of 40 sec work, 20 sec rest; "
-                "Farmer carry: 4 x 30 sec; Easy cooldown walk: 8 min."
+            WeeklyWorkoutDay(
+                day="Saturday",
+                title="Conditioning and core",
+                exercises=[
+                    WeeklyWorkoutExercise(name="Dumbbell circuit", prescription="5 rounds of 40 sec work, 20 sec rest"),
+                    WeeklyWorkoutExercise(name="Farmer carry", prescription="4 x 30 sec"),
+                    WeeklyWorkoutExercise(name="Easy cooldown walk", prescription="8 min"),
+                ],
             ),
-            (
-                f"Sunday: Recovery reset - {exercises[4]}: 2 x 45 sec per side; "
-                "Nasal-breathing walk: 20 min; Downshift breathing: 5 min."
+            WeeklyWorkoutDay(
+                day="Sunday",
+                title="Recovery reset",
+                exercises=[
+                    WeeklyWorkoutExercise(name=exercises[4], prescription="2 x 45 sec per side"),
+                    WeeklyWorkoutExercise(name="Nasal-breathing walk", prescription="20 min"),
+                    WeeklyWorkoutExercise(name="Downshift breathing", prescription="5 min"),
+                ],
             ),
         ],
         notes=[
@@ -281,7 +326,7 @@ def create_weekly_workout_plan(
 
     logger.info("Trainer weekly plan requesting Gemini generation.")
     generated = llm.generate_structured(
-        output_model=WorkoutPlan,
+        output_model=WeeklyWorkoutPlan,
         system_prompt=(
             "You are the Trainer Agent in a multi-agent fitness coaching board. "
             "Create practical, safe, beginner-readable training plans. "
@@ -294,8 +339,9 @@ def create_weekly_workout_plan(
             f"Available equipment:\n{equipment}\n\n"
             f"Retrieved exercise context:\n{_rag_context_json(hits)}\n\n"
             "Requirements:\n"
-            "- Include exactly 7 blocks, one for each day from Monday to Sunday.\n"
-            "- Format each block as: Day: Session title - exercise or interval; exercise or interval; exercise or interval.\n"
+            "- Include exactly 7 days, one for each day from Monday to Sunday.\n"
+            "- Each day must have a day, title, and exercises list.\n"
+            "- Each exercise must have name and prescription. Use notes only when a short safety note is needed.\n"
             "- Only prescribe exercises that can be done with the user's available equipment, plus bodyweight movements."
             " Do not include bands, machines, cables, kettlebells, pull-up bars, or other equipment unless listed in the profile.\n"
             "- Monday, Tuesday, Thursday, Friday, and Saturday must be real training days, not stretching-only days.\n"
@@ -373,7 +419,7 @@ def _generate_daily_workout_with_llm(
     return _with_rag_context(generated, hits)
 
 
-def _with_rag_context(plan: WorkoutPlan, hits: list[RagHit]) -> WorkoutPlan:
+def _with_rag_context(plan: WorkoutPlan | WeeklyWorkoutPlan, hits: list[RagHit]) -> WorkoutPlan | WeeklyWorkoutPlan:
     notes = list(plan.notes)
     if not any("Gemini" in note for note in notes):
         notes.append("Plan generated by Gemini using retrieved exercise context.")
@@ -386,9 +432,9 @@ def _available_equipment_text(profile: UserProfile) -> str:
     return ", ".join(profile.equipment_available)
 
 
-def _uses_unavailable_equipment(plan: WorkoutPlan, profile: UserProfile) -> bool:
+def _uses_unavailable_equipment(plan: WorkoutPlan | WeeklyWorkoutPlan, profile: UserProfile) -> bool:
     allowed = {item.strip().lower() for item in profile.equipment_available}
-    plan_text = " ".join([plan.title, *plan.blocks, *plan.notes]).lower()
+    plan_text = " ".join([plan.title, *_plan_workout_text(plan), *plan.notes]).lower()
     unavailable_terms = {
         "bands": ["band", "bands", "resistance band"],
         "kettlebell": ["kettlebell", "kettlebells"],
@@ -407,7 +453,7 @@ def _uses_unavailable_equipment(plan: WorkoutPlan, profile: UserProfile) -> bool
     return False
 
 
-def _is_stretching_dominant_week(plan: WorkoutPlan) -> bool:
+def _is_stretching_dominant_week(plan: WeeklyWorkoutPlan) -> bool:
     training_terms = [
         "squat",
         "lunge",
@@ -430,7 +476,7 @@ def _is_stretching_dominant_week(plan: WorkoutPlan) -> bool:
 
     training_day_count = 0
     recovery_dominant_day_count = 0
-    for block in plan.blocks:
+    for block in _plan_workout_text(plan):
         lowered = block.lower()
         has_training = any(term in lowered for term in training_terms)
         recovery_mentions = sum(lowered.count(term) for term in recovery_terms)
@@ -441,6 +487,24 @@ def _is_stretching_dominant_week(plan: WorkoutPlan) -> bool:
             recovery_dominant_day_count += 1
 
     return training_day_count < 4 or recovery_dominant_day_count > 3
+
+
+def _plan_workout_text(plan: WorkoutPlan | WeeklyWorkoutPlan) -> list[str]:
+    if isinstance(plan, WorkoutPlan):
+        return plan.blocks
+    return [
+        " ".join(
+            [
+                day.day,
+                day.title,
+                *[
+                    " ".join([exercise.name, exercise.prescription, exercise.notes or ""])
+                    for exercise in day.exercises
+                ],
+            ]
+        )
+        for day in plan.days
+    ]
 
 
 def _baseline_note(baseline_workout: BaselineWorkoutDay | None, current_day: str | None) -> str:

@@ -15,6 +15,7 @@ from app.schemas import (
     DecisionAuditItem,
     MorningCheckInRequest,
     WeeklyNutritionPlan,
+    WeeklyWorkoutPlan,
     WorkoutPlan,
 )
 from app.services.llm import get_llm_client
@@ -186,9 +187,13 @@ def _load_baseline_workout_day(
     if saved is None:
         return None
     try:
-        plan = WorkoutPlan.model_validate(saved.payload)
+        plan = WeeklyWorkoutPlan.model_validate(saved.payload)
     except ValidationError:
-        return None
+        try:
+            legacy_plan = WorkoutPlan.model_validate(saved.payload)
+        except ValidationError:
+            return None
+        return _workout_day_from_legacy_plan(legacy_plan, current_day)
     return _workout_day_from_plan(plan, current_day)
 
 
@@ -212,7 +217,18 @@ def _load_baseline_nutrition_day(
     return BaselineNutritionDay(day=day.day, focus=day.focus, meals=day.meals)
 
 
-def _workout_day_from_plan(plan: WorkoutPlan, current_day: str) -> BaselineWorkoutDay | None:
+def _workout_day_from_plan(plan: WeeklyWorkoutPlan, current_day: str) -> BaselineWorkoutDay | None:
+    matching_day = next((day for day in plan.days if day.day.lower() == current_day.lower()), None)
+    if matching_day is None:
+        return None
+    details = [
+        f"{exercise.name} {exercise.prescription}{f' ({exercise.notes})' if exercise.notes else ''}"
+        for exercise in matching_day.exercises
+    ]
+    return BaselineWorkoutDay(day=matching_day.day, title=matching_day.title, details=details)
+
+
+def _workout_day_from_legacy_plan(plan: WorkoutPlan, current_day: str) -> BaselineWorkoutDay | None:
     matching_block = next(
         (block for block in plan.blocks if block.strip().lower().startswith(f"{current_day.lower()}:")),
         None,
