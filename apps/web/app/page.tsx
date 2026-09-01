@@ -18,6 +18,7 @@ import {
   Save,
   Sparkles,
   Timer,
+  Trash2,
   User,
   X
 } from "lucide-react";
@@ -28,7 +29,7 @@ type RecoveryStatus = "GREEN" | "YELLOW" | "RED";
 type DialogMode = "none" | "profile" | "plans" | "checkin" | "briefing" | "workout" | "nutrition";
 type ActiveAction = "workout" | "nutrition" | "checkin" | null;
 type ToastMessage = {
-  tone: "info" | "error";
+  tone: "info" | "success" | "error";
   message: string;
 };
 
@@ -464,6 +465,25 @@ export default function Home() {
     }
   }
 
+  async function deleteGeneratedPlan(plan: SavedGeneratedPlan) {
+    setError(null);
+
+    try {
+      const response = await fetch(`${apiUrl()}/api/profile/${profile.user_id}/generated-plans/${plan.id}`, {
+        method: "DELETE"
+      });
+
+      if (!response.ok) throw new Error("Saved plan could not be deleted.");
+
+      setSavedPlans((plans) => plans.filter((savedPlan) => savedPlan.id !== plan.id));
+      if (plan.plan_type === "weekly_workout") setWorkoutPlan(null);
+      if (plan.plan_type === "weekly_nutrition") setNutritionPlan(null);
+      setToast({ tone: "success", message: "Saved plan deleted." });
+    } catch (requestError) {
+      setToast({ tone: "error", message: errorMessage(requestError, "Unable to delete saved plan.") });
+    }
+  }
+
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setProfileState("saving");
@@ -637,6 +657,7 @@ export default function Home() {
                     setDialogMode("nutrition");
                   }
                 }}
+                onDeletePlan={deleteGeneratedPlan}
                 onOpenAdjustment={(adjustment) => {
                   if (isDailyBriefingPayload(adjustment.payload)) {
                     setBriefing(adjustment.payload);
@@ -786,7 +807,11 @@ function ToastNotice({
   return (
     <div
       className={`fixed right-5 top-24 z-[60] flex w-[min(420px,calc(100vw-2.5rem))] items-start gap-3 rounded-[18px] border-[2px] bg-white/90 p-4 text-sm shadow-[0_24px_55px_rgba(6,26,46,0.24)] backdrop-blur-md ${
-        toast.tone === "error" ? "border-recovery text-recovery" : "border-[#1428FF] text-[#102235]"
+        toast.tone === "error"
+          ? "border-recovery text-recovery"
+          : toast.tone === "success"
+            ? "border-[#1428FF] text-[#102235]"
+            : "border-[#1428FF] text-[#102235]"
       }`}
       role="status"
       aria-live="polite"
@@ -1155,13 +1180,18 @@ function SavedPlansPanel({
   plans,
   dailyAdjustments,
   onOpenPlan,
+  onDeletePlan,
   onOpenAdjustment
 }: {
   plans: SavedGeneratedPlan[];
   dailyAdjustments: SavedDailyAdjustment[];
   onOpenPlan: (plan: SavedGeneratedPlan) => void;
+  onDeletePlan: (plan: SavedGeneratedPlan) => Promise<void>;
   onOpenAdjustment: (adjustment: SavedDailyAdjustment) => void;
 }) {
+  const [confirmingPlanId, setConfirmingPlanId] = useState<string | null>(null);
+  const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null);
+
   if (plans.length === 0 && dailyAdjustments.length === 0) {
     return (
       <section className="rounded-[22px] border border-[#17202A]/20 bg-white/55 p-5 text-sm text-slate shadow-[0_16px_32px_rgba(6,26,46,0.1)] backdrop-blur">
@@ -1195,13 +1225,59 @@ function SavedPlansPanel({
                     <p className="mt-2 text-xs text-slate">Updated {formatDateTime(plan.updated_at)}</p>
                   </div>
                 </div>
-                <button
-                  className="mt-5 inline-flex min-h-11 items-center justify-center rounded-control bg-[#111820] px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(6,26,46,0.22)] transition hover:-translate-y-0.5 hover:bg-black hover:shadow-[0_16px_30px_rgba(6,26,46,0.28)] active:translate-y-0"
-                  onClick={() => onOpenPlan(plan)}
-                  type="button"
-                >
-                  Open plan
-                </button>
+                {confirmingPlanId === plan.id ? (
+                  <div className="mt-5 rounded-control border border-recovery/30 bg-[#FFF4F0]/75 p-3">
+                    <p className="text-xs leading-5 text-recovery">
+                      Delete this saved baseline? You can generate a new one later.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-control bg-recovery px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_20px_rgba(201,76,46,0.2)] transition hover:-translate-y-0.5 hover:bg-[#A83C25] disabled:cursor-not-allowed disabled:opacity-70 active:translate-y-0"
+                        disabled={deletingPlanId === plan.id}
+                        onClick={async () => {
+                          setDeletingPlanId(plan.id);
+                          await onDeletePlan(plan);
+                          setDeletingPlanId(null);
+                          setConfirmingPlanId(null);
+                        }}
+                        type="button"
+                      >
+                        {deletingPlanId === plan.id ? (
+                          <Loader2 className="animate-spin" size={16} aria-hidden="true" />
+                        ) : (
+                          <Trash2 size={16} aria-hidden="true" />
+                        )}
+                        Delete plan
+                      </button>
+                      <button
+                        className="inline-flex min-h-10 items-center justify-center rounded-control border border-[#17202A]/20 bg-white/70 px-4 py-2 text-sm font-semibold text-ink transition hover:-translate-y-0.5 hover:border-[#1428FF] hover:bg-white active:translate-y-0"
+                        disabled={deletingPlanId === plan.id}
+                        onClick={() => setConfirmingPlanId(null)}
+                        type="button"
+                      >
+                        Keep plan
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    <button
+                      className="inline-flex min-h-11 items-center justify-center rounded-control bg-[#111820] px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(6,26,46,0.22)] transition hover:-translate-y-0.5 hover:bg-black hover:shadow-[0_16px_30px_rgba(6,26,46,0.28)] active:translate-y-0"
+                      onClick={() => onOpenPlan(plan)}
+                      type="button"
+                    >
+                      Open plan
+                    </button>
+                    <button
+                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-recovery/35 bg-white/60 px-4 py-2 text-sm font-semibold text-recovery transition hover:-translate-y-0.5 hover:bg-[#FFF4F0] active:translate-y-0"
+                      onClick={() => setConfirmingPlanId(plan.id)}
+                      type="button"
+                    >
+                      <Trash2 size={16} aria-hidden="true" />
+                      Delete
+                    </button>
+                  </div>
+                )}
               </article>
             ))}
           </div>

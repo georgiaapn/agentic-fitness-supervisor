@@ -1,5 +1,6 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from uuid import UUID
 
 from app.db.models import SavedGeneratedPlan, User
 from app.schemas import SavedGeneratedPlanSummary, UserProfile
@@ -69,3 +70,23 @@ def get_saved_generated_plan(db: Session, user_id: str, plan_type: str) -> Saved
         .where(SavedGeneratedPlan.plan_type == plan_type)
         .limit(1)
     )
+
+
+def delete_saved_generated_plan(db: Session, user_id: str, plan_id: str) -> bool:
+    try:
+        parsed_plan_id = UUID(plan_id)
+    except ValueError:
+        return False
+
+    plan = db.scalar(
+        select(SavedGeneratedPlan)
+        .where(SavedGeneratedPlan.user_id == user_id)
+        .where(SavedGeneratedPlan.id == parsed_plan_id)
+        .limit(1)
+    )
+    if plan is None:
+        return False
+
+    db.delete(plan)
+    db.commit()
+    return True

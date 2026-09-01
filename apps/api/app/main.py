@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 import logging
 from typing import Annotated
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi import Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
@@ -31,7 +31,7 @@ from app.schemas import (
 from app.services.persistence import persist_daily_briefing
 from app.services.daily_adjustments import list_saved_daily_adjustments, upsert_saved_daily_adjustment
 from app.services.profiles import get_profile, upsert_profile
-from app.services.saved_plans import list_saved_generated_plans, upsert_saved_generated_plan
+from app.services.saved_plans import delete_saved_generated_plan, list_saved_generated_plans, upsert_saved_generated_plan
 from app.services.llm import get_llm_client
 from app.services.rag import RagService
 from app.services.wearable_data import WearableDataService
@@ -176,6 +176,20 @@ def read_generated_plans(
     if not settings.persistence_enabled:
         return []
     return list_saved_generated_plans(db, user_id)
+
+
+@app.delete("/api/profile/{user_id}/generated-plans/{plan_id}")
+def delete_generated_plan(
+    user_id: str,
+    plan_id: str,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, str]:
+    if not settings.persistence_enabled:
+        return {"status": "deleted"}
+    deleted = delete_saved_generated_plan(db, user_id, plan_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Saved generated plan not found.")
+    return {"status": "deleted"}
 
 
 @app.get("/api/profile/{user_id}/daily-adjustments", response_model=list[SavedDailyAdjustmentSummary])
