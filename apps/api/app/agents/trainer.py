@@ -17,7 +17,7 @@ from app.services.rag import RagService
 logger = logging.getLogger(__name__)
 
 
-def create_workout_plan(
+def create_workout_plan( # returns a WorkoutPlan for the user based on their profile, wearable data, and supervisor directives
     profile: UserProfile,
     wearable: WearableSnapshot,
     directives: SupervisorDirectives,

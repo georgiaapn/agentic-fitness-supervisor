@@ -83,15 +83,15 @@ def health() -> dict[str, str]:
 @app.post("/api/check-ins/simulate", response_model=DailyBriefingResponse)
 def simulate_morning_check_in(
     payload: MorningCheckInRequest,
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db)], # active connection to the database, if persistence is enabled
 ) -> DailyBriefingResponse:
     wearable = WearableDataService().sample_snapshot(payload.self_report)
-    payload = payload.model_copy(update={"wearable": wearable})
+    payload = payload.model_copy(update={"wearable": wearable}) # update the payload to include the sampled wearable snapshot
 
     if settings.persistence_enabled:
         saved_profile = get_profile(db, payload.profile.user_id)
-        if saved_profile is not None:
-            payload = payload.model_copy(update={"profile": saved_profile})
+        if saved_profile is not None: # if a saved profile exists in the database
+            payload = payload.model_copy(update={"profile": saved_profile}) # use it instead of the provided profile
 
     briefing = run_morning_check_in(payload, db if settings.persistence_enabled else None)
     if settings.persistence_enabled:
@@ -122,30 +122,6 @@ def generate_weekly_workout_plan(
             payload=plan.model_dump(mode="json"),
         )
     return plan
-
-
-@app.post("/api/plans/nutrition", response_model=NutritionPlan)
-def generate_diet_plan(
-    profile: UserProfile,
-    db: Annotated[Session, Depends(get_db)],
-) -> NutritionPlan:
-    if settings.persistence_enabled:
-        saved_profile = get_profile(db, profile.user_id)
-        if saved_profile is not None:
-            profile = saved_profile
-    directives = SupervisorDirectives(
-        selected_agents=["nutritionist"],
-        skipped_agents=[],
-        trainer_directive="No workout plan requested.",
-        nutritionist_directive="Create meals that support the user's primary fitness goal.",
-        rationale=f"Standalone diet plan requested for goal {profile.goal}.",
-    )
-    return create_nutrition_plan(
-        profile,
-        directives,
-        RagService(db if settings.persistence_enabled else None),
-        get_llm_client(),
-    )
 
 
 @app.post("/api/plans/nutrition/weekly", response_model=WeeklyNutritionPlan)

@@ -1,5 +1,4 @@
 from datetime import datetime
-import re
 
 from langgraph.graph import END, START, StateGraph
 from pydantic import ValidationError
@@ -16,15 +15,11 @@ from app.schemas import (
     MorningCheckInRequest,
     WeeklyNutritionPlan,
     WeeklyWorkoutPlan,
-    WorkoutPlan,
 )
 from app.services.llm import get_llm_client
 from app.services.rag import RagService
 from app.services.saved_plans import get_saved_generated_plan
 from app.workflow.state import FitnessGraphState, SpecialistNode
-
-
-WEEK_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
 def load_context_node(state: FitnessGraphState) -> FitnessGraphState:
@@ -61,7 +56,7 @@ def recovery_node(state: FitnessGraphState) -> FitnessGraphState:
     ]
     return {"recovery": recovery, "audit": audit}
 
-
+# at this point the theoritical decision taken by coordinate_day is oficially integrated in the flow
 def supervisor_node(state: FitnessGraphState) -> FitnessGraphState:
     directives = coordinate_day(
         state["profile"],
@@ -71,6 +66,7 @@ def supervisor_node(state: FitnessGraphState) -> FitnessGraphState:
         baseline_workout=state.get("baseline_workout"),
         baseline_nutrition=state.get("baseline_nutrition"),
     )
+    # record the supervisor's decision in the audit trail
     audit = [
         *state.get("audit", []),
         DecisionAuditItem(
@@ -92,7 +88,7 @@ def route_specialists(state: FitnessGraphState) -> list[SpecialistNode]:
 
 
 def trainer_node(state: FitnessGraphState) -> FitnessGraphState:
-    rag = RagService(state.get("db"))
+    rag = RagService(state.get("db")) # create a RAG service instance for the trainer agent to use
     workout = create_workout_plan(
         state["profile"],
         state["wearable"],
@@ -106,7 +102,7 @@ def trainer_node(state: FitnessGraphState) -> FitnessGraphState:
 
 
 def nutritionist_node(state: FitnessGraphState) -> FitnessGraphState:
-    rag = RagService(state.get("db"))
+    rag = RagService(state.get("db")) # create a RAG service instance for the nutritionist agent to use
     nutrition = create_nutrition_plan(
         state["profile"],
         state["directives"],
@@ -117,7 +113,7 @@ def nutritionist_node(state: FitnessGraphState) -> FitnessGraphState:
     )
     return {"nutrition": nutrition}
 
-
+# this node aggregates the outputs of the specialist agents and produces a final message for the user
 def aggregate_node(state: FitnessGraphState) -> FitnessGraphState:
     recovery = state["recovery"]
     final_message = (
@@ -189,11 +185,7 @@ def _load_baseline_workout_day(
     try:
         plan = WeeklyWorkoutPlan.model_validate(saved.payload)
     except ValidationError:
-        try:
-            legacy_plan = WorkoutPlan.model_validate(saved.payload)
-        except ValidationError:
-            return None
-        return _workout_day_from_legacy_plan(legacy_plan, current_day)
+        return None
     return _workout_day_from_plan(plan, current_day)
 
 
@@ -216,7 +208,7 @@ def _load_baseline_nutrition_day(
         return None
     return BaselineNutritionDay(day=day.day, focus=day.focus, meals=day.meals)
 
-
+# searches in a weekly plan for the current day and returns the BaselineWorkoutDay
 def _workout_day_from_plan(plan: WeeklyWorkoutPlan, current_day: str) -> BaselineWorkoutDay | None:
     matching_day = next((day for day in plan.days if day.day.lower() == current_day.lower()), None)
     if matching_day is None:
@@ -226,30 +218,6 @@ def _workout_day_from_plan(plan: WeeklyWorkoutPlan, current_day: str) -> Baselin
         for exercise in matching_day.exercises
     ]
     return BaselineWorkoutDay(day=matching_day.day, title=matching_day.title, details=details)
-
-
-def _workout_day_from_legacy_plan(plan: WorkoutPlan, current_day: str) -> BaselineWorkoutDay | None:
-    matching_block = next(
-        (block for block in plan.blocks if block.strip().lower().startswith(f"{current_day.lower()}:")),
-        None,
-    )
-    if matching_block is None:
-        index = WEEK_DAYS.index(current_day) if current_day in WEEK_DAYS else 0
-        matching_block = plan.blocks[index] if len(plan.blocks) > index else None
-    if matching_block is None:
-        return None
-
-    title, details = _parse_workout_block(current_day, matching_block)
-    return BaselineWorkoutDay(day=current_day, title=title, details=details)
-
-
-def _parse_workout_block(day: str, block: str) -> tuple[str, list[str]]:
-    without_day = re.sub(rf"^{re.escape(day)}:\s*", "", block.strip(), count=1, flags=re.IGNORECASE)
-    title, separator, details_text = without_day.partition(" - ")
-    if not separator:
-        return without_day or "Planned workout", []
-    details = [item.strip().rstrip(".") for item in details_text.split(";") if item.strip()]
-    return title.strip() or "Planned workout", details
 
 
 def _baseline_audit_evidence(state: FitnessGraphState) -> list[str]:

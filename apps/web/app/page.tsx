@@ -371,7 +371,7 @@ export default function Home() {
   const hasTodayAdjustment = todayAdjustment !== undefined;
   const canRunCheckIn = hasWorkoutBaseline && hasNutritionBaseline && !hasTodayAdjustment;
 
-  async function generateWorkoutPlan() {
+  async function generateWorkoutPlan() { 
     setRunState("running");
     setActiveAction("workout");
     setError(null);

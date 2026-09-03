@@ -150,10 +150,10 @@ class RagService:
             required_any_terms=required_any_terms,
             allowed_equipment=allowed_equipment,
         )
-        if vector_hits:
+        if vector_hits: # if vector search returned results, return them
             return vector_hits
 
-        chunks = self.db.scalars(
+        chunks = self.db.scalars( # else fallback to lexical search with keywords
             select(KnowledgeChunk)
             .where(KnowledgeChunk.collection == collection)
             .order_by(KnowledgeChunk.created_at.asc())
@@ -341,7 +341,9 @@ def _training_query(profile: UserProfile) -> str:
         "strength": "strength compound barbell dumbbell squat hinge press row deadlift",
         "general_fitness": "full body strength conditioning squat hinge press row carry core",
     }
-    query = goal_terms.get(profile.goal, goal_terms["general_fitness"])
+    query = goal_terms.get(profile.goal, goal_terms["general_fitness"]) 
+    # goal_terms is a dict mapping goals(key) to relevant exercise terms (values)
+    # default to general fitness if goal is unknown
     equipment = " ".join(profile.equipment_available)
     injuries = " ".join(profile.injury_history)
     return f"{query} {equipment} {injuries}".strip()

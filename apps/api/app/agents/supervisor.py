@@ -91,16 +91,18 @@ def coordinate_day(
         ),
     )
 
-
+# creates a natural-language phrase describing the planned workout baseline, 
+# for use in the supervisor's rationale and directives
 def _planned_workout_phrase(baseline_workout: BaselineWorkoutDay | None) -> str:
     if baseline_workout is None:
         return "the generated weekly workout plan"
-    details = "; ".join(baseline_workout.details[:3])
+    details = "; ".join(baseline_workout.details[:3]) # if there are details, include the first 3 in the phrase
     if details:
         return f"the saved weekly workout baseline '{baseline_workout.title}' ({details})"
     return f"the saved weekly workout baseline '{baseline_workout.title}'"
 
-
+# creates a natural-language phrase describing the planned nutrition baseline,
+# for use in the supervisor's rationale and directives
 def _planned_nutrition_phrase(baseline_nutrition: BaselineNutritionDay | None) -> str:
     if baseline_nutrition is None:
         return "the generated weekly nutrition plan"
@@ -117,19 +119,21 @@ def _baseline_recovery_conflict(
     if baseline_workout is None:
         return None
 
-    planned_text = " ".join([baseline_workout.title, *baseline_workout.details]).lower()
+    planned_text = " ".join([baseline_workout.title, *baseline_workout.details]).lower() # eg. "lower body strength: squats, deadlifts, lunges"
     upper_terms = ["upper", "push", "pull", "bench", "press", "row", "chest", "shoulder", "back"]
     lower_terms = ["lower", "legs", "squat", "lunge", "deadlift", "quad", "hamstring", "glute"]
 
-    if wearable.soreness_upper >= 7 and any(term in planned_text for term in upper_terms):
+    # if upper-body soreness is high and the planned workout is upper-body focused
+    if wearable.soreness_upper >= 7 and any(term in planned_text for term in upper_terms): 
         return "upper-body soreness is high for an upper-body baseline"
+    # if lower-body soreness is high and the planned workout is lower-body focused
     if wearable.soreness_quads >= 7 and any(term in planned_text for term in lower_terms):
         return "quad soreness is high for a lower-body baseline"
     if wearable.pain_level >= 6:
         return "pain level is elevated"
     return None
 
-
+# which body part the mobility session should focus on when recovery is needed
 def _replacement_focus(
     baseline_conflict: str | None,
     wearable: WearableSnapshot,

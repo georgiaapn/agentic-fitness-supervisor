@@ -121,7 +121,7 @@ class WeeklyWorkoutPlan(BaseModel): # represents the generated weekly workout pl
 class BaselineWorkoutDay(BaseModel): # today's baseline workout plan, used for checkin with the generated workout plan
     day: str
     title: str
-    details: list[str]
+    details: list[str] # list of exercise names and prescriptions, e.g. ["Squats: 3x10", "Deadlifts: 3x5"]
 
 
 class NutritionPlan(BaseModel): # nutrition agent output/suggestion for today, AFTER the checkin

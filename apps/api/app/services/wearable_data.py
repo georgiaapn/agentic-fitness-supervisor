@@ -37,6 +37,7 @@ class WearableDataService:
     def __init__(self, dataset_path: Path = DATASET_PATH) -> None:
         self.dataset_path = dataset_path
 
+    # This method samples a wearable snapshot from the dataset, using the provided self-report to fill in soreness and pain levels. 
     def sample_snapshot(self, self_report: MorningSelfReport) -> WearableSnapshot:
         rows = _load_clean_rows(str(self.dataset_path))
         if not rows:
@@ -59,9 +60,9 @@ class WearableDataService:
         )
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=1) # cache the results of loading the dataset so we don't have to read the CSV file every time we sample a snapshot
 def _load_clean_rows(dataset_path: str) -> list[CleanWearableRow]:
-    path = Path(dataset_path)
+    path = Path(dataset_path) # check if the dataset file exists, and raise an error if it doesn't
     if not path.exists():
         raise WearableDatasetUnavailable(f"Wearable dataset not found: {path}")
 
@@ -72,7 +73,7 @@ def _load_clean_rows(dataset_path: str) -> list[CleanWearableRow]:
             if row is not None:
                 clean_rows.append(row)
 
-    return clean_rows
+    return clean_rows # returns a list of clean and valid rows from the CSV file
 
 
 def _next_row(rows: list[CleanWearableRow]) -> CleanWearableRow:
@@ -82,8 +83,8 @@ def _next_row(rows: list[CleanWearableRow]) -> CleanWearableRow:
         _sample_index += 1
         return row
 
-
-def _clean_row(row: dict[str, str]) -> CleanWearableRow | None:
+# this function takes a raw row from the CSV and returns a CleanWearableRow if the data is valid, or None if it's invalid
+def _clean_row(row: dict[str, str]) -> CleanWearableRow | None: 
     heart_rate = _number(row.get("Heart Rate (BPM)"))
     blood_oxygen = _number(row.get("Blood Oxygen Level (%)"))
     step_count = _number(row.get("Step Count"))
@@ -104,7 +105,7 @@ def _clean_row(row: dict[str, str]) -> CleanWearableRow | None:
     if activity_level == "unknown":
         return None
 
-    return CleanWearableRow(
+    return CleanWearableRow( # if row survives the above constrains, return a CleanWearableRow with the cleaned values
         heart_rate_bpm=round(heart_rate),
         blood_oxygen_level=round(blood_oxygen, 1),
         step_count=round(step_count),
@@ -114,16 +115,16 @@ def _clean_row(row: dict[str, str]) -> CleanWearableRow | None:
     )
 
 
-def _number(value: str | None) -> float | None:
+def _number(value: str | None) -> float | None: # turns a string into a float (or None if it can't be parsed)
     try:
-        text = str(value or "").strip()
+        text = str(value or "").strip() # remove whitespace and convert None to empty string
         return float(text) if text else None
     except ValueError:
         return None
 
 
 def _normalize_activity_level(value: str) -> str:
-    normalized = value.strip().lower().replace(" ", "_")
+    normalized = value.strip().lower().replace(" ", "_") # eg. "Moderately Active" -> "moderately_active"
     if normalized in {"sedentary", "low", "low_active"}:
         return "low_active"
     if normalized in {"active", "actve", "moderate", "moderately_active"}:
