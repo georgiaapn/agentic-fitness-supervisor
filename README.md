@@ -1,151 +1,282 @@
 # Agentic Fitness Supervisor
 
-Agentic Fitness Supervisor is an AI fitness coaching board where specialist agents work like a small coaching team. The app combines a user profile, generated weekly plans, mock smartwatch data, self-reported soreness/pain, RAG knowledge, and LLM plan generation to produce adaptive daily coaching decisions.
+Agentic Fitness Supervisor is a full-stack AI fitness coaching board. It combines a
+Next.js dashboard, a FastAPI backend, LangGraph orchestration, PostgreSQL/pgvector
+RAG, wearable-data simulation, structured LLM outputs, and deterministic safety
+guardrails to generate and adapt workout and nutrition plans.
 
-The MVP is local-first and recruiter-friendly: it shows multi-agent orchestration, FastAPI APIs, PostgreSQL/pgvector persistence, RAG ingestion, structured LLM outputs, and a polished Next.js dashboard without relying on paid infrastructure.
+Instead of one generic chatbot, the user is coached by a small AI team. A Trainer
+Agent plans training, a Nutritionist Agent plans meals, a Recovery Agent evaluates
+readiness, and a Supervisor Agent coordinates the final daily decision so
+recommendations do not conflict.
 
-## Product Overview
+The project is local-first and open-source-friendly. It is designed to demonstrate
+practical agent architecture, retrieval pipelines, persistence, cloud-ready service
+boundaries, and a polished user-facing product.
 
-The user keeps a demo profile with age, gender, fitness level, goal, dietary restrictions, available equipment, and injury history. They first generate:
+## Overview
 
-- a weekly workout baseline;
-- a weekly nutrition baseline.
+The app supports three main user flows:
 
-After those plans exist, the user can run a morning check-in. The backend samples a cleaned row from the mock smartwatch CSV, merges it with self-reported soreness/pain/available time, runs the LangGraph workflow, and returns a daily evaluation with baseline plan, recovery status, adjusted workout, adjusted meals, and coach guardrails.
+1. **Profile setup**
 
-Generated weekly plans are saved per user and overwritten when regenerated. Daily check-in adjustments can also be explicitly saved without changing the weekly baseline.
+   The user edits a demo profile containing age, sex, height, weight, fitness
+   level, goal, available equipment, dietary restrictions, and injury history.
+
+2. **Weekly plan generation**
+
+   The user generates a weekly workout plan and a weekly nutrition plan. These
+   plans are grounded in the user's profile and retrieved knowledge from the RAG
+   database. Generated plans are saved and can be viewed, replaced, downloaded, or
+   deleted.
+
+3. **Morning check-in**
+
+   After weekly plans exist, the user can start the day with a morning check-in.
+   The app reviews the user's wearable signals and self-reported condition, then
+   decides whether today's workout and meals should stay as planned or be
+   adjusted. For example, if readiness is high, the user may keep the planned
+   session. If sleep, soreness, pain, or stress suggest lower readiness, the app
+   can reduce training load, swap the workout for mobility/recovery work, and
+   adapt the day's nutrition.
+
+   **Demo disclaimer:** the current app simulates a smartwatch integration by
+   sampling wearable-style rows from a local CSV. In a real deployment, this layer
+   is intended to be replaced by actual wearable data from the user's device or a
+   wearable provider API.
+
+## Features
+
+- Create a personalized weekly workout plan based on goals, fitness level,
+  available equipment, and injury history.
+- Create a personalized weekly nutrition plan with breakfast, lunch, dinner, and
+  snack suggestions.
+- Edit a fitness profile with body metrics, training goal, dietary restrictions,
+  available equipment, and injuries.
+- Run a morning readiness check before training.
+- See whether today's plan should stay unchanged or be adjusted for recovery.
+- Get a clear recovery status: `GREEN`, `YELLOW`, or `RED`.
+- View today's planned workout and meals next to the adjusted recommendation.
+- Save generated weekly plans and access them later.
+- Save, update, or delete daily adjustments.
+- Download generated workout and nutrition plans as PDFs.
+- Receive user-friendly feedback when a check-in cannot run yet, such as when
+  weekly plans have not been generated.
 
 ## Tech Stack
 
-| Layer | Tools |
+| Layer | Technology |
 | --- | --- |
-| Frontend | Next.js, React, TypeScript, Tailwind CSS, lucide-react |
+| Frontend | Next.js 15, React 19, TypeScript, Tailwind CSS, lucide-react, Recharts |
 | Backend | FastAPI, Pydantic, SQLAlchemy, Alembic |
-| Agent workflow | LangGraph |
-| LLM provider | Gemini API with deterministic fallbacks |
-| RAG | PostgreSQL, pgvector, sentence-transformers |
-| Database | PostgreSQL with `pgvector/pgvector:pg16` in Docker |
-| Local deployment | Docker Compose or separate Next.js/FastAPI dev servers |
-| Cloud demo option | Azure Static Web Apps + Azure Container Apps + Neon/Supabase Postgres |
+| Agent orchestration | LangGraph |
+| LLM provider | Gemini API |
+| LLM fallback | Deterministic Python planning logic |
+| RAG storage | PostgreSQL + pgvector |
+| Embeddings | sentence-transformers, `intfloat/multilingual-e5-small` |
+| Database driver | psycopg 3 |
+| Local infrastructure | Docker Compose |
+| Cloud-friendly option | Azure Static Web Apps, Azure Container Apps, managed Postgres |
 
-## Repository Layout
+## Architecture
 
 ```text
-apps/
-  api/      FastAPI backend, LangGraph workflow, agents, migrations, ingestion scripts
-  web/      Next.js dashboard
-data/
-  raw/      Local source datasets for exercises, nutrition, recovery, and wearables
+apps/web
+  Next.js UI
+  Profile editor
+  Weekly plan modals
+  Morning check-in modal
+  Saved plans and adjustments
+
+apps/api
+  FastAPI routes
+  Pydantic schemas
+  LangGraph workflow
+  Specialist agents
+  RAG service
+  LLM client
+  SQLAlchemy models
+  Alembic migrations
+  Dataset ingestion scripts
+
+data/raw
+  exercises/
+  nutrition/
+  recovery/
+  wearables/
 ```
 
-The project intentionally keeps product documentation in this root README instead of separate docs files.
+At runtime:
 
-## LangGraph Flow
+```text
+Frontend
+  -> FastAPI endpoints
+  -> agents / LangGraph workflow
+  -> RAG service
+  -> PostgreSQL + pgvector
+  -> Gemini API when enabled
+  -> deterministic fallback when needed
+```
+
+## Main Agent Responsibilities
+
+### Trainer Agent
+
+The Trainer Agent creates workout recommendations.
+
+- Generates a 7-day weekly workout plan.
+- Uses profile goal, fitness level, available equipment, and injury history.
+- Retrieves exercise context from `exercise_knowledge_base`.
+- Avoids unavailable equipment.
+- Avoids stretch-dominant weekly plans for normal training.
+- Creates daily adjusted workouts during morning check-in.
+- Downshifts volume/intensity when the Supervisor issues recovery constraints.
+
+### Nutritionist Agent
+
+The Nutritionist Agent creates nutrition recommendations.
+
+- Generates a 7-day nutrition plan with 4 or 5 meals per day.
+- Uses profile goal, dietary restrictions, body weight, and calculated targets.
+- Retrieves meal context from `nutrition_knowledge_base`.
+- Uses `meal_type` as grounding so Breakfast, Lunch, Dinner, and Snack remain
+  slot-appropriate.
+- Keeps daily calories and protein near calculated targets.
+- Creates daily adjusted meals during morning check-in.
+
+### Recovery Agent
+
+The Recovery Agent evaluates readiness.
+
+- Reads wearable data and self-report values.
+- Produces `GREEN`, `YELLOW`, or `RED` recovery status.
+- Calculates a readiness score.
+- Emits constraints such as low sleep, high soreness, elevated pain, high stress,
+  low SpO2, or high step-count load.
+- Retrieves supporting recovery protocol context from `recovery_knowledge_base`.
+- Keeps safety decisions deterministic instead of delegating them entirely to an
+  LLM.
+
+### Supervisor Agent
+
+The Supervisor Agent coordinates the team.
+
+- Reads the Recovery Agent report.
+- Reads the user's long-term goal.
+- Reads today's baseline workout and nutrition from saved weekly plans.
+- Detects conflicts, such as high soreness or pain on the same body region as
+  today's planned training.
+- Issues directives to Trainer and Nutritionist.
+- Decides which specialist nodes should run.
+- Prevents heavy training recommendations when recovery constraints require a
+  safer daily plan.
+
+## LangGraph Daily Check-In Flow
 
 ```mermaid
 flowchart TD
-    Start((START)) --> LoadContext[load_context]
-    LoadContext --> Recovery[recovery_agent]
-    Recovery --> Supervisor[supervisor_agent]
+    Start((START)) --> LoadContext[load_context_node]
+    LoadContext --> Recovery[recovery_node]
+    Recovery --> Supervisor[supervisor_node]
 
-    Supervisor -->|normal readiness route| Trainer[trainer_agent]
-    Supervisor -->|normal readiness route| Nutritionist[nutritionist_agent]
-    Supervisor -->|trainer blocked by safety route| NutritionistSolo[nutritionist_solo]
+    Supervisor --> Route{route_specialists}
+    Route -->|trainer + nutritionist| Trainer[trainer_node]
+    Route -->|trainer + nutritionist| Nutritionist[nutritionist_node]
+    Route -->|nutrition only| NutritionSolo[nutritionist_solo]
 
-    Trainer --> Join{wait for specialist outputs}
-    Nutritionist --> Join
-    NutritionistSolo --> Aggregate[aggregate]
-
-    Join --> Aggregate
+    Trainer --> Aggregate[aggregate_node]
+    Nutritionist --> Aggregate
+    NutritionSolo --> Aggregate
     Aggregate --> End((END))
 
-    LoadContext -. reads .-> SavedPlans[(saved weekly baselines)]
-    Recovery -. writes .-> RecoveryReport[(recovery report)]
-    Supervisor -. writes .-> Directives[(supervisor directives)]
-    Trainer -. writes .-> WorkoutPlan[(adjusted workout)]
-    Nutritionist -. writes .-> NutritionPlan[(adjusted meals)]
-    Aggregate -. returns .-> Briefing[(daily briefing response)]
+    LoadContext -.-> Profile[(profile)]
+    LoadContext -.-> Wearable[(wearable snapshot)]
+    LoadContext -.-> Baselines[(saved weekly plans)]
+    Recovery -.-> RecoveryReport[(recovery report)]
+    Supervisor -.-> Directives[(supervisor directives)]
+    Trainer -.-> Workout[(adjusted workout)]
+    Nutritionist -.-> Nutrition[(adjusted meals)]
 ```
 
-Routing behavior:
+The weekly workout and weekly nutrition generation flows do **not** run through
+LangGraph. They are direct FastAPI endpoints that call the Trainer or
+Nutritionist agent independently. LangGraph is used for the daily check-in,
+because that is where multiple agents need coordinated state and conditional
+routing.
 
-- The normal path runs Trainer and Nutritionist in parallel and waits for both before aggregation.
-- If pain or safety rules block training, the graph skips Trainer and routes only to Nutritionist.
-- The Supervisor is baseline-aware: it compares today's saved plan with recovery signals before issuing directives.
-- Recovery status and hard safety constraints are deterministic Python logic. The LLM composes plans but does not own safety thresholds.
+## Core Flows
 
-## Agents
+### Generate Weekly Workout Plan
 
-| Agent | Responsibility |
+```text
+Get Workout Plan button
+  -> POST /api/plans/workout/weekly
+  -> generate_weekly_workout_plan
+  -> RagService.training_exercises(profile)
+  -> get_llm_client()
+  -> create_weekly_workout_plan(...)
+  -> Gemini structured output or deterministic fallback
+  -> save_generated_plan(...)
+  -> WeeklyWorkoutPlan returned to UI
+```
+
+### Generate Weekly Nutrition Plan
+
+```text
+Get Diet Plan button
+  -> POST /api/plans/nutrition/weekly
+  -> generate_weekly_nutrition_plan
+  -> RagService.recovery_meals(profile)
+  -> get_llm_client()
+  -> create_weekly_nutrition_plan(...)
+  -> Gemini structured output or deterministic fallback
+  -> save_generated_plan(...)
+  -> WeeklyNutritionPlan returned to UI
+```
+
+### Morning Check-In
+
+```text
+Check in button
+  -> self-report modal
+  -> POST /api/check-ins/simulate
+  -> sample mock wearable CSV row
+  -> POST /api/check-ins/morning
+  -> run_morning_check_in(...)
+  -> LangGraph invoke(...)
+  -> DailyBriefingResponse returned to UI
+  -> optional save/update daily adjustment
+```
+
+## RAG Design
+
+RAG knowledge is stored in two database tables:
+
+| Table | Purpose |
 | --- | --- |
-| Recovery Agent | Scores readiness from smartwatch + self-report data, applies deterministic safety rules, retrieves recovery protocols. |
-| Supervisor Agent | Coordinates the day, detects conflicts between baseline plan and recovery status, routes specialists. |
-| Trainer Agent | Generates weekly workout plans and daily adjusted workouts using profile, equipment, injury history, directives, and exercise RAG. |
-| Nutritionist Agent | Generates weekly nutrition plans and daily meal adjustments using profile, goals, dietary restrictions, directives, and recipe RAG. |
-
-## Data And RAG
-
-RAG data is stored in two Postgres tables:
-
-- `knowledge_documents`: one row per source document/entity;
-- `knowledge_chunks`: searchable text chunks with metadata and optional `embedding vector(384)`.
+| `knowledge_documents` | One row per source item/document. |
+| `knowledge_chunks` | Searchable text chunks, metadata, and optional pgvector embedding. |
 
 Collections:
 
-| Collection | Used By | Source |
+| Collection | Used by | Source |
 | --- | --- | --- |
-| `exercise_knowledge_base` | Trainer Agent | Exercise dataset JSON |
-| `nutrition_knowledge_base` | Nutritionist Agent | Nutrition recipe CSV |
-| `recovery_knowledge_base` | Recovery Agent | Curated recovery protocol JSON |
+| `exercise_knowledge_base` | Trainer Agent | Exercise JSON dataset |
+| `nutrition_knowledge_base` | Nutritionist Agent | Healthy eating meal CSV |
+| `recovery_knowledge_base` | Recovery Agent | Curated recovery protocols |
 
-The retrieval service uses pgvector semantic search when embeddings exist. If embeddings are missing or local embedding dependencies are unavailable, it falls back to lexical scoring over `knowledge_chunks`.
+Retrieval behavior:
 
-The default embedding model is:
+- If embeddings exist, the app uses pgvector similarity search.
+- If embeddings are missing or embedding dependencies are unavailable, it falls
+  back to lexical keyword scoring.
+- Exercise retrieval filters by available equipment.
+- Nutrition retrieval avoids known dietary restriction terms.
+- Recovery retrieval builds a query from wearable and self-report risk signals.
 
-```text
-intfloat/multilingual-e5-small
-```
+## Data Model Highlights
 
-It creates 384-dimensional embeddings for `knowledge_chunks.embedding`.
-
-## Wearable Simulation
-
-The wearable CSV is not RAG knowledge. It simulates a smartwatch integration for the demo.
-
-Expected file:
-
-```text
-data/raw/wearables/unclean_smartwatch_health_data.csv
-```
-
-Every `POST /api/check-ins/simulate` samples a cleaned row from this CSV. The app treats that as if the frontend had received current smartwatch data from the user's device.
-
-CSV mapping:
-
-| Dataset column | App field |
-| --- | --- |
-| `Heart Rate (BPM)` | `resting_heart_rate` |
-| `Blood Oxygen Level (%)` | `blood_oxygen_level` |
-| `Step Count` | `step_count` |
-| `Sleep Duration (hours)` | `sleep_hours` |
-| `Activity Level` | `activity_level` |
-| `Stress Level` | `stress_level` |
-
-The check-in UI sends self-reported values:
-
-- `soreness_quads`;
-- `soreness_upper`;
-- `pain_level`;
-- `available_minutes`.
-
-The MVP derives:
-
-- `sleep_score`;
-- `energy_level`.
-
-## Database
-
-Main tables:
+Important application tables:
 
 - `users`
 - `user_profiles`
@@ -158,47 +289,103 @@ Main tables:
 - `knowledge_documents`
 - `knowledge_chunks`
 
-The MVP uses a single demo user until authentication is added:
+The MVP uses one demo user:
 
 ```text
 demo-user
 ```
 
-Profile endpoints:
+This keeps the demo focused on agentic behavior. A production version can add
+email/password authentication while keeping the existing `user_id` ownership
+model for profiles, plans, and adjustments.
+
+## API Surface
+
+Useful endpoints:
 
 ```text
-GET /api/profile/demo-user
-PUT /api/profile/demo-user
-```
+GET    /health
 
-Saved plan endpoints:
+GET    /api/profile/demo-user
+PUT    /api/profile/demo-user
 
-```text
-GET /api/profile/{user_id}/generated-plans
+POST   /api/plans/workout/weekly
+POST   /api/plans/nutrition/weekly
+
+GET    /api/profile/{user_id}/generated-plans
 DELETE /api/profile/{user_id}/generated-plans/{plan_id}
-GET /api/profile/{user_id}/daily-adjustments
-POST /api/profile/{user_id}/daily-adjustments
+
+POST   /api/check-ins/simulate
+POST   /api/check-ins/morning
+
+GET    /api/profile/{user_id}/daily-adjustments
+POST   /api/profile/{user_id}/daily-adjustments
 DELETE /api/profile/{user_id}/daily-adjustments/{adjustment_id}
+
+GET    /api/agent-runs
+GET    /api/knowledge-chunks
 ```
 
-Agent run inspection:
+Interactive API docs are available locally at:
 
 ```text
-GET /api/agent-runs
-GET /api/knowledge-chunks
-GET /api/knowledge-chunks?collection=exercise_knowledge_base
+http://localhost:8000/docs
+```
+
+## Requirements
+
+- Python 3.11+
+- Node.js 20+
+- Docker Desktop
+- Gemini API key for LLM generation
+- PostgreSQL client tools are optional but useful
+- Enough disk space for the local Hugging Face model cache when generating
+  embeddings
+
+## Environment Variables
+
+Backend `.env` lives in `apps/api/.env`.
+
+Create it from:
+
+```text
+apps/api/.env.example
+```
+
+Common backend variables:
+
+```env
+DATABASE_URL=postgresql+psycopg://fitness:fitness@localhost:5432/fitness_agents
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-3.5-flash-lite
+LLM_TIMEOUT_SECONDS=30
+EMBEDDING_MODEL=intfloat/multilingual-e5-small
+PERSISTENCE_ENABLED=true
+```
+
+Frontend `.env` lives in `apps/web/.env.local`.
+
+Create it from:
+
+```text
+apps/web/.env.example
+```
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
 ## Local Development
 
-Install frontend dependencies:
+### 1. Install Frontend Dependencies
 
 ```powershell
 cd C:\FITNESS_AGENT\agentic-fitness-supervisor\apps\web
 npm install
 ```
 
-Install backend dependencies:
+### 2. Install Backend Dependencies
 
 ```powershell
 cd C:\FITNESS_AGENT\agentic-fitness-supervisor\apps\api
@@ -207,7 +394,7 @@ python -m venv .venv
 pip install -e ".[rag]"
 ```
 
-Start Postgres:
+### 3. Start PostgreSQL
 
 ```powershell
 cd C:\FITNESS_AGENT\agentic-fitness-supervisor
@@ -222,10 +409,10 @@ Port: 5432
 Database: fitness_agents
 Username: fitness
 Password: fitness
-Compose service: postgres
+Docker Compose service: postgres
 ```
 
-Apply migrations:
+### 4. Run Migrations
 
 ```powershell
 cd C:\FITNESS_AGENT\agentic-fitness-supervisor\apps\api
@@ -233,15 +420,15 @@ $env:PERSISTENCE_ENABLED="true"
 python -m alembic upgrade head
 ```
 
-Start the API:
+### 5. Start The API
 
 ```powershell
 cd C:\FITNESS_AGENT\agentic-fitness-supervisor\apps\api
 $env:PERSISTENCE_ENABLED="true"
-uvicorn app.main:app --reload
+python -m uvicorn app.main:app --reload
 ```
 
-Start the web app:
+### 6. Start The Web App
 
 ```powershell
 cd C:\FITNESS_AGENT\agentic-fitness-supervisor\apps\web
@@ -250,43 +437,50 @@ npm run dev
 
 Local URLs:
 
-- Web: `http://localhost:3000`
-- API: `http://localhost:8000`
-- API docs: `http://localhost:8000/docs`
-- Health check: `http://localhost:8000/health`
+```text
+Web:      http://localhost:3000
+API:      http://localhost:8000
+API docs: http://localhost:8000/docs
+Health:   http://localhost:8000/health
+```
 
-Quick API-only mode without database persistence:
+## Docker Compose
+
+The Compose stack defines:
+
+- `postgres`: PostgreSQL 16 with pgvector
+- `api`: FastAPI backend
+- `web`: Next.js frontend
+
+Start the full stack:
 
 ```powershell
-$env:PERSISTENCE_ENABLED="false"
-uvicorn app.main:app --reload
+cd C:\FITNESS_AGENT\agentic-fitness-supervisor
+docker compose up --build
 ```
 
-## Gemini LLM Provider
+For development, it is often easier to run only the database in Docker and run
+the API/web dev servers directly:
 
-Create `apps/api/.env` from `.env.example` and add:
-
-```text
-LLM_PROVIDER=gemini
-GEMINI_API_KEY=your_google_ai_studio_key
-GEMINI_MODEL=gemini-3.5-flash-lite
-LLM_TIMEOUT_SECONDS=30
+```powershell
+docker compose up -d postgres
 ```
-
-Gemini is used for:
-
-- weekly Trainer plans;
-- daily Trainer adjustments inside the LangGraph check-in;
-- weekly Nutritionist plans;
-- daily Nutritionist adjustments.
-
-If Gemini is disabled, rate-limited, times out, or returns invalid JSON, the backend returns deterministic fallback plans.
 
 ## Dataset Ingestion
 
-Run these commands from `apps/api` while Postgres is running and migrations are applied.
+Run ingestion commands from `apps/api` after PostgreSQL is running and migrations
+have been applied.
 
-Exercise dataset:
+### Exercise Knowledge
+
+Expected files:
+
+```text
+data/raw/exercises/exercises.json
+data/raw/exercises/exercises.schema.json
+```
+
+Commands:
 
 ```powershell
 $env:PERSISTENCE_ENABLED="true"
@@ -294,16 +488,28 @@ python -m app.scripts.ingest_exercises_dataset --replace
 python -m app.scripts.embed_knowledge_chunks --collection exercise_knowledge_base
 ```
 
-Expected local files:
+The exercise pipeline stores exercise name, category, body part, equipment,
+target muscles, secondary muscles, English instructions, and metadata. It does
+not redistribute exercise images or videos.
+
+### Nutrition Knowledge
+
+Expected file:
 
 ```text
-data/raw/exercises/exercises.json
-data/raw/exercises/exercises.schema.json
+data/raw/nutrition/healthy_eating_dataset.csv
 ```
 
-The exercise ingestion creates searchable content from exercise name, category, body part, equipment, target muscles, secondary muscles, and English instructions. It stores metadata such as dataset id, equipment, target, secondary muscles, and media references. It does not download or store exercise image/video files.
+Expected columns:
 
-Nutrition dataset:
+```text
+meal_id, meal_name, cuisine, meal_type, diet_type, calories, protein_g,
+carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, cholesterol_mg,
+serving_size_g, cooking_method, prep_time_min, cook_time_min, rating,
+is_healthy, image_url
+```
+
+Commands:
 
 ```powershell
 $env:PERSISTENCE_ENABLED="true"
@@ -311,38 +517,18 @@ python -m app.scripts.ingest_nutrition_dataset --replace
 python -m app.scripts.embed_knowledge_chunks --collection nutrition_knowledge_base
 ```
 
-Expected local file:
+By default, ingestion keeps only rows where `is_healthy` is true. Use
+`--include-unhealthy` only for experiments.
+
+### Recovery Knowledge
+
+Expected file:
 
 ```text
-data/raw/nutrition/healthy_eating_dataset.csv
+data/raw/recovery/recovery_protocols.json
 ```
 
-Expected columns include:
-
-- `meal_id`
-- `meal_name`
-- `cuisine`
-- `meal_type`
-- `diet_type`
-- `calories`
-- `protein_g`
-- `carbs_g`
-- `fat_g`
-- `fiber_g`
-- `sugar_g`
-- `sodium_mg`
-- `cholesterol_mg`
-- `serving_size_g`
-- `cooking_method`
-- `prep_time_min`
-- `cook_time_min`
-- `rating`
-- `is_healthy`
-- `image_url`
-
-By default, ingestion keeps only rows where `is_healthy` is true. Use `--include-unhealthy` only for experiments.
-
-Recovery knowledge:
+Commands:
 
 ```powershell
 $env:PERSISTENCE_ENABLED="true"
@@ -350,70 +536,138 @@ python -m app.scripts.ingest_recovery_protocols --replace
 python -m app.scripts.embed_knowledge_chunks --collection recovery_knowledge_base
 ```
 
-Expected local file:
+Recovery protocols are intentionally small and curated. They provide grounding
+for readiness, deload, low sleep, high stress, high soreness, high pain, low
+SpO2, elevated resting heart rate, and high step-count situations.
+
+## Wearable Simulation
+
+The product architecture assumes the app receives the user's current wearable
+data during the morning check-in. For this MVP, that external smartwatch
+integration is mocked with a local CSV so the demo can run without connecting to
+Apple Health, Fitbit, Garmin, Whoop, or another provider.
+
+The wearable dataset is not used as RAG knowledge. It represents the live
+wearable input layer that would be replaced by a real provider API in production.
+
+Expected file:
 
 ```text
-data/raw/recovery/recovery_protocols.json
+data/raw/wearables/unclean_smartwatch_health_data.csv
 ```
 
-Recovery protocols are intentionally small and curated. They cover low sleep, high soreness, elevated resting heart rate, high stress, low blood oxygen, high pain safety stop rules, high step count load reduction, and green readiness progression.
+Mapping:
 
-Use `--limit` for quick smoke tests:
+| Dataset column | App field |
+| --- | --- |
+| `Heart Rate (BPM)` | `resting_heart_rate` |
+| `Blood Oxygen Level (%)` | `blood_oxygen_level` |
+| `Step Count` | `step_count` |
+| `Sleep Duration (hours)` | `sleep_hours` |
+| `Activity Level` | `activity_level` |
+| `Stress Level` | `stress_level` |
+
+Derived fields:
+
+- `sleep_score`
+- `energy_level`
+
+Self-reported check-in fields:
+
+- `soreness_quads`
+- `soreness_upper`
+- `pain_level`
+- `available_minutes`
+
+## Reliability And Guardrails
+
+The app does not rely on the LLM for every important decision.
+
+- Recovery scoring and safety constraints are deterministic.
+- LLM responses must validate against Pydantic schemas.
+- If Gemini is unavailable, rate-limited, times out, or returns invalid JSON,
+  deterministic fallback plans are returned.
+- Trainer outputs are checked for unavailable equipment and stretch-dominant
+  weekly plans.
+- Nutrition prompts instruct Gemini to respect `meal_type` slots and dietary
+  restrictions.
+- Backend data remains inspectable through saved plans, agent runs, and
+  knowledge chunk endpoints.
+
+## Testing And Verification
+
+Common backend syntax check:
 
 ```powershell
-python -m app.scripts.ingest_exercises_dataset --replace --limit 10
-python -m app.scripts.embed_knowledge_chunks --collection exercise_knowledge_base --limit 10
+cd C:\FITNESS_AGENT\agentic-fitness-supervisor
+python -m py_compile apps\api\app\main.py apps\api\app\workflow\graph.py
 ```
 
-Use `--replace` with the embedding script when rebuilding vectors:
+Frontend build:
 
 ```powershell
-python -m app.scripts.embed_knowledge_chunks --collection exercise_knowledge_base --replace
+cd C:\FITNESS_AGENT\agentic-fitness-supervisor\apps\web
+npm run build
 ```
 
-## Deployment
-
-### Local OSS Deployment
-
-The fully open-source local path is:
+Backend health:
 
 ```powershell
-docker compose up --build
+curl.exe http://localhost:8000/health
 ```
 
-This runs:
+Expected healthy response includes:
 
-- PostgreSQL with pgvector;
-- FastAPI backend;
-- Next.js frontend.
-
-For local LLM experimentation, install Ollama separately:
-
-```bash
-ollama pull qwen2.5:7b
-ollama serve
+```json
+{
+  "status": "ok",
+  "persistence": "enabled",
+  "llm_provider": "gemini",
+  "llm": "enabled"
+}
 ```
 
-The current hosted demo path uses Gemini instead because it is simpler to deploy publicly than running local inference in Azure.
+## Deployment Notes
 
-### Azure-Friendly Demo Deployment
+The project can run fully locally with Docker Compose. For a public cloud demo,
+the recommended free-friendly shape is:
 
-Recommended free-friendly shape:
+- frontend: Azure Static Web Apps
+- backend: Azure Container Apps
+- database: Neon, Supabase, or another managed PostgreSQL provider with pgvector
+- LLM: Gemini API free tier
 
-- `apps/web`: Azure Static Web Apps;
-- `apps/api`: Azure Container Apps on the Consumption plan;
-- database: Neon or Supabase free PostgreSQL with pgvector;
-- LLM: Gemini API free tier or another hosted provider.
+Running a local LLM such as Ollama is useful for development, but it is not a
+good fit for a free Azure-hosted public demo because it needs persistent compute
+and more memory.
 
-Do not rely on free Azure compute for Ollama. Keep Ollama local for development, and use a hosted API key for the public demo.
+## Limitations
 
-## Licences And Data Use
+- Authentication is not implemented yet; the MVP uses `demo-user`.
+- The smartwatch integration is simulated from CSV.
+- Nutrition data is synthetic demo data.
+- Recovery guidance is educational and not medical advice.
+- Gemini availability depends on the selected model and provider rate limits.
+- Full post-generation nutrition meal-slot validation is a future improvement.
 
-This project combines application code, local datasets, and generated embeddings. Keep these concerns separate.
+## Roadmap
+
+- Add email/password authentication without Firebase dependency.
+- Add per-user plan history and progress analytics.
+- Add timezone-aware current-day selection.
+- Add real wearable provider integration.
+- Add richer nutrition recipe cards with ingredients and instructions if a
+  suitable dataset is added.
+- Add automated tests for graph routing, recovery decisions, RAG filters, and UI
+  flows.
+- Add deployment templates for Azure demo infrastructure.
+
+## Licenses And Acknowledgements
 
 ### Project Code
 
-The application code licence should be defined by the repository owner before public release. If you publish the repo, add a root `LICENSE` file for your own code.
+Add a root `LICENSE` file before public release to define the license for this
+application code.
 
 ### Exercise Dataset
 
@@ -423,14 +677,16 @@ Source:
 https://github.com/hasaneyldrm/exercises-dataset/tree/main/data
 ```
 
-The repository states that code, tooling, dataset structure, instruction text, and translations are MIT licensed.
+The repository states that code, tooling, dataset structure, instruction text,
+and translations are MIT licensed.
 
 Important media exception:
 
 - exercise media under `images/` and `videos/` is not covered by MIT;
 - media is attributed to Gym visual;
 - cloning the dataset does not grant reuse rights for that media;
-- this project should ingest only the JSON exercise data and avoid redistributing exercise media unless separate rights are obtained.
+- this project ingests exercise JSON data and does not redistribute exercise
+  image/video media.
 
 ### Nutrition Dataset
 
@@ -440,7 +696,8 @@ Source:
 https://www.kaggle.com/datasets/khushikyad001/healthy-eating-dataset
 ```
 
-The Kaggle page lists the licence as `MIT`. The dataset is synthetic, so use it as demo/recommendation grounding rather than clinical nutrition truth. The ingestion script stores meal names, meal type, cuisine, diet type, nutrition values, cooking method, prep/cook time, health flag, and source metadata in `nutrition_knowledge_base`.
+The Kaggle page lists the dataset license as MIT. The dataset is synthetic and
+is used as demo grounding data for meal recommendations.
 
 ### Wearable Dataset
 
@@ -450,7 +707,8 @@ The smartwatch simulation dataset is stored under:
 data/raw/wearables/
 ```
 
-The included dataset licence is Apache License 2.0. Keep `data/raw/wearables/LICENSE` with the dataset when distributing or modifying it. If the original source provides a separate `NOTICE` file, add it next to the dataset.
+The included dataset license is Apache License 2.0. Keep
+`data/raw/wearables/LICENSE` with the dataset when distributing or modifying it.
 
 ### Recovery Knowledge
 
@@ -460,31 +718,4 @@ Recovery protocols are curated educational demo content stored in:
 data/raw/recovery/recovery_protocols.json
 ```
 
-They are not medical diagnosis or treatment guidance. The app keeps deterministic safety checks around LLM output and should continue to do so.
-
-## Current MVP Status
-
-Implemented:
-
-- polished Next.js coaching board UI;
-- editable demo profile;
-- weekly workout generation;
-- weekly nutrition generation;
-- generated plan persistence;
-- morning check-in with mock smartwatch data and self-report;
-- LangGraph multi-agent workflow;
-- baseline-aware Supervisor directives;
-- daily adjusted workout and nutrition output;
-- saved daily adjustments;
-- Postgres persistence and Alembic migrations;
-- RAG ingestion for exercise, nutrition, and recovery collections;
-- pgvector semantic retrieval with lexical fallback;
-- Gemini structured output with deterministic fallbacks.
-
-Planned future improvements:
-
-- real authentication instead of fixed `demo-user`;
-- user-specific timezone handling for check-in day selection;
-- real smartwatch API integration;
-- richer plan history and progress analytics;
-- stronger automated tests around agent routing and UI flows.
+They are not medical diagnosis or treatment guidance.
