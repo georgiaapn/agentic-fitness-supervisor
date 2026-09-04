@@ -91,6 +91,10 @@ def create_nutrition_plan(
             " Make a visible adjustment: reduce starchy carb portions slightly, keep protein high, and choose recovery-supportive foods.\n"
             "- Explain changes through notes, especially if recovery or lower activity changes the baseline.\n"
             "- Respect dietary restrictions.\n"
+            "- Use retrieved meal_type values as strict slot constraints: Breakfast meals only for Breakfast, "
+            "Lunch meals only for Lunch, Dinner meals only for Dinner, and Snack meals only for Snack.\n"
+            "- Do not place chicken, fish, beef, pork, pasta bowls, stews, or soups at Breakfast unless the retrieved "
+            "context explicitly labels that meal as Breakfast.\n"
             "- Include 2 to 5 concise notes.\n"
             "- Omit rag_context or return it as an empty list; the API will attach retrieved context."
         ),
@@ -189,7 +193,11 @@ def create_weekly_nutrition_plan(
             "- Keep daily_calorie_target within 150 kcal of the calculated target.\n"
             "- Keep daily_protein_g within 15g of the calculated target.\n"
             "- Respect dietary restrictions from the profile.\n"
-            "- Use retrieved recipes or ingredients as grounding where they fit.\n"
+            "- Use retrieved meals as grounding where they fit, and treat retrieved meal_type as a strict slot constraint.\n"
+            "- Breakfast context may only be used for Breakfast, Lunch context only for Lunch, Dinner context only for Dinner, "
+            "and Snack context only for Snack.\n"
+            "- Do not place chicken, fish, beef, pork, pasta bowls, stews, or soups at Breakfast unless the retrieved "
+            "context explicitly labels that meal as Breakfast.\n"
             "- Include 2 to 5 concise notes.\n"
             "- Omit rag_context or return it as an empty list; the API will attach retrieved context."
         ),
