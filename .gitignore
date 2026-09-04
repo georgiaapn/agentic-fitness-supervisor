@@ -22,6 +22,7 @@ premium-audit.json
 data/raw/exercises/images/
 data/raw/exercises/videos/
 
-# Kaggle nutrition data should stay local unless redistribution rights are confirmed.
-data/raw/nutrition/*.csv
+# Keep nutrition archives and legacy datasets local. The current MIT-licensed
+# healthy eating CSV is tracked as project demo data.
+data/raw/nutrition/All_Diets.csv
 data/raw/nutrition/*.zip

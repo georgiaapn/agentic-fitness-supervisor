@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 COLLECTION = "nutrition_knowledge_base"
-SOURCE_URI = "kaggle://thedevastator/healthy-diet-recipes-a-comprehensive-dataset/All_Diets.csv"
+SOURCE_URI = "kaggle://khushikyad001/healthy-eating-dataset/healthy_eating_dataset.csv"
 
 
 def ingest_nutrition_dataset(
@@ -13,10 +13,13 @@ def ingest_nutrition_dataset(
     *,
     replace: bool = False,
     limit: int | None = None,
+    include_unhealthy: bool = False,
 ) -> int:
     from app.db.models import KnowledgeChunk, KnowledgeDocument
 
     recipes = _load_dataset(dataset_path)
+    if not include_unhealthy:
+        recipes = [recipe for recipe in recipes if _is_healthy(recipe)]
     if limit is not None:
         recipes = recipes[:limit]
 
@@ -27,7 +30,7 @@ def ingest_nutrition_dataset(
 
     inserted = 0
     for recipe in recipes:
-        title = _string(_value(recipe, "Recipe_name", "Recipe Name", "recipe_name"))
+        title = _string(_value(recipe, "meal_name", "Recipe_name", "Recipe Name", "recipe_name"))
         if not title:
             continue
 
@@ -101,41 +104,78 @@ def _delete_existing_collection(db) -> None:
 
 
 def _content_for_recipe(recipe: dict[str, Any]) -> str:
-    name = _string(_value(recipe, "Recipe_name", "Recipe Name", "recipe_name"))
-    diet = _string(_value(recipe, "Diet_type", "Diet Type", "diet_type"))
-    cuisine = _string(_value(recipe, "Cuisine_type", "Cuisine Type", "cuisine_type"))
-    protein = _number(_value(recipe, "Protein(g)", "Protein", "protein"))
-    carbs = _number(_value(recipe, "Carbs(g)", "Carbs", "carbohydrates"))
-    fat = _number(_value(recipe, "Fat(g)", "Fat", "fat"))
-    extraction_day = _string(_value(recipe, "Extraction_day", "Extraction Day", "extraction_day"))
+    name = _string(_value(recipe, "meal_name", "Recipe_name", "Recipe Name", "recipe_name"))
+    meal_type = _string(_value(recipe, "meal_type"))
+    diet = _string(_value(recipe, "diet_type", "Diet_type", "Diet Type"))
+    cuisine = _string(_value(recipe, "cuisine", "Cuisine_type", "Cuisine Type"))
+    calories = _number(_value(recipe, "calories"))
+    protein = _number(_value(recipe, "protein_g", "Protein(g)", "Protein", "protein"))
+    carbs = _number(_value(recipe, "carbs_g", "Carbs(g)", "Carbs", "carbohydrates"))
+    fat = _number(_value(recipe, "fat_g", "Fat(g)", "Fat", "fat"))
+    fiber = _number(_value(recipe, "fiber_g"))
+    sugar = _number(_value(recipe, "sugar_g"))
+    sodium = _number(_value(recipe, "sodium_mg"))
+    cholesterol = _number(_value(recipe, "cholesterol_mg"))
+    serving_size = _number(_value(recipe, "serving_size_g"))
+    cooking_method = _string(_value(recipe, "cooking_method"))
+    prep_time = _number(_value(recipe, "prep_time_min"))
+    cook_time = _number(_value(recipe, "cook_time_min"))
+    rating = _number(_value(recipe, "rating"))
 
     parts = [
-        f"Recipe: {name}.",
+        f"Meal: {name}.",
+        f"Meal type: {meal_type}." if meal_type else "",
         f"Diet type: {diet}." if diet else "",
-        f"Cuisine type: {cuisine}." if cuisine else "",
+        f"Cuisine: {cuisine}." if cuisine else "",
+        f"Calories: {calories:g} kcal." if calories is not None else "",
         f"Protein: {protein:g}g." if protein is not None else "",
         f"Carbs: {carbs:g}g." if carbs is not None else "",
         f"Fat: {fat:g}g." if fat is not None else "",
-        f"Extraction day: {extraction_day}." if extraction_day else "",
+        f"Fiber: {fiber:g}g." if fiber is not None else "",
+        f"Sugar: {sugar:g}g." if sugar is not None else "",
+        f"Sodium: {sodium:g}mg." if sodium is not None else "",
+        f"Cholesterol: {cholesterol:g}mg." if cholesterol is not None else "",
+        f"Serving size: {serving_size:g}g." if serving_size is not None else "",
+        f"Cooking method: {cooking_method}." if cooking_method else "",
+        f"Prep time: {prep_time:g} minutes." if prep_time is not None else "",
+        f"Cook time: {cook_time:g} minutes." if cook_time is not None else "",
+        f"Rating: {rating:g}." if rating is not None else "",
+        "Health flag: healthy.",
     ]
     return " ".join(part for part in parts if part)
 
 
 def _metadata_for_recipe(recipe: dict[str, Any]) -> dict[str, Any]:
     return {
-        "diet_type": _string(_value(recipe, "Diet_type", "Diet Type", "diet_type")),
-        "cuisine_type": _string(_value(recipe, "Cuisine_type", "Cuisine Type", "cuisine_type")),
-        "protein_g": _number(_value(recipe, "Protein(g)", "Protein", "protein")),
-        "carbs_g": _number(_value(recipe, "Carbs(g)", "Carbs", "carbohydrates")),
-        "fat_g": _number(_value(recipe, "Fat(g)", "Fat", "fat")),
-        "extraction_day": _string(_value(recipe, "Extraction_day", "Extraction Day", "extraction_day")),
+        "meal_id": _string(_value(recipe, "meal_id")),
+        "meal_type": _string(_value(recipe, "meal_type")),
+        "diet_type": _string(_value(recipe, "diet_type", "Diet_type", "Diet Type")),
+        "cuisine": _string(_value(recipe, "cuisine", "Cuisine_type", "Cuisine Type")),
+        "calories": _number(_value(recipe, "calories")),
+        "protein_g": _number(_value(recipe, "protein_g", "Protein(g)", "Protein", "protein")),
+        "carbs_g": _number(_value(recipe, "carbs_g", "Carbs(g)", "Carbs", "carbohydrates")),
+        "fat_g": _number(_value(recipe, "fat_g", "Fat(g)", "Fat", "fat")),
+        "fiber_g": _number(_value(recipe, "fiber_g")),
+        "sugar_g": _number(_value(recipe, "sugar_g")),
+        "sodium_mg": _number(_value(recipe, "sodium_mg")),
+        "cholesterol_mg": _number(_value(recipe, "cholesterol_mg")),
+        "serving_size_g": _number(_value(recipe, "serving_size_g")),
+        "cooking_method": _string(_value(recipe, "cooking_method")),
+        "prep_time_min": _number(_value(recipe, "prep_time_min")),
+        "cook_time_min": _number(_value(recipe, "cook_time_min")),
+        "rating": _number(_value(recipe, "rating")),
+        "is_healthy": _bool(_value(recipe, "is_healthy")),
+        "image_url": _string(_value(recipe, "image_url")),
     }
 
 
 def _tags_for_recipe(recipe: dict[str, Any]) -> list[str]:
     tags = [
-        _value(recipe, "Diet_type", "Diet Type", "diet_type"),
-        _value(recipe, "Cuisine_type", "Cuisine Type", "cuisine_type"),
+        _value(recipe, "meal_type"),
+        _value(recipe, "diet_type", "Diet_type", "Diet Type"),
+        _value(recipe, "cuisine", "Cuisine_type", "Cuisine Type"),
+        _value(recipe, "cooking_method"),
+        "healthy" if _is_healthy(recipe) else "",
     ]
     return sorted({str(tag).strip().lower() for tag in tags if str(tag or "").strip()})
 
@@ -167,13 +207,22 @@ def _number(value: Any) -> float | None:
         return None
 
 
+def _bool(value: Any) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
+def _is_healthy(recipe: dict[str, Any]) -> bool:
+    value = _value(recipe, "is_healthy")
+    return True if value == "" else _bool(value)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Ingest recipe CSV data into the RAG knowledge base.")
     parser.add_argument(
         "--dataset",
         type=Path,
-        default=Path("../../data/raw/nutrition/All_Diets.csv"),
-        help="Path to All_Diets.csv from apps/api.",
+        default=Path("../../data/raw/nutrition/healthy_eating_dataset.csv"),
+        help="Path to healthy_eating_dataset.csv from apps/api.",
     )
     parser.add_argument(
         "--replace",
@@ -181,6 +230,11 @@ def parse_args() -> argparse.Namespace:
         help="Delete previously ingested nutrition chunks before inserting.",
     )
     parser.add_argument("--limit", type=int, default=None, help="Optional limit for quick test ingestion.")
+    parser.add_argument(
+        "--include-unhealthy",
+        action="store_true",
+        help="Include rows where is_healthy is false. By default only healthy rows are ingested.",
+    )
     return parser.parse_args()
 
 
@@ -196,6 +250,7 @@ def main() -> None:
             dataset_path,
             replace=args.replace,
             limit=args.limit,
+            include_unhealthy=args.include_unhealthy,
         )
 
     if inserted == 0:

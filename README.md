@@ -314,18 +314,33 @@ python -m app.scripts.embed_knowledge_chunks --collection nutrition_knowledge_ba
 Expected local file:
 
 ```text
-data/raw/nutrition/All_Diets.csv
+data/raw/nutrition/healthy_eating_dataset.csv
 ```
 
 Expected columns include:
 
-- `Diet_type`
-- `Recipe_name`
-- `Cuisine_type`
-- `Protein(g)`
-- `Carbs(g)`
-- `Fat(g)`
-- `Extraction_day`
+- `meal_id`
+- `meal_name`
+- `cuisine`
+- `meal_type`
+- `diet_type`
+- `calories`
+- `protein_g`
+- `carbs_g`
+- `fat_g`
+- `fiber_g`
+- `sugar_g`
+- `sodium_mg`
+- `cholesterol_mg`
+- `serving_size_g`
+- `cooking_method`
+- `prep_time_min`
+- `cook_time_min`
+- `rating`
+- `is_healthy`
+- `image_url`
+
+By default, ingestion keeps only rows where `is_healthy` is true. Use `--include-unhealthy` only for experiments.
 
 Recovery knowledge:
 
@@ -422,10 +437,10 @@ Important media exception:
 Source:
 
 ```text
-https://www.kaggle.com/datasets/thedevastator/healthy-diet-recipes-a-comprehensive-dataset
+https://www.kaggle.com/datasets/khushikyad001/healthy-eating-dataset
 ```
 
-The Kaggle page lists the licence as `Other (specified in description)`. Keep the raw CSV local unless redistribution rights are confirmed. The ingestion script stores recipe names, diet type, cuisine type, and macro values in `nutrition_knowledge_base`.
+The Kaggle page lists the licence as `MIT`. The dataset is synthetic, so use it as demo/recommendation grounding rather than clinical nutrition truth. The ingestion script stores meal names, meal type, cuisine, diet type, nutrition values, cooking method, prep/cook time, health flag, and source metadata in `nutrition_knowledge_base`.
 
 ### Wearable Dataset
 
