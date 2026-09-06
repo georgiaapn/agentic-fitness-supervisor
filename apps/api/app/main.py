@@ -43,6 +43,7 @@ from app.services.wearable_data import WearableDataService
 from app.workflow.graph import run_morning_check_in
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
