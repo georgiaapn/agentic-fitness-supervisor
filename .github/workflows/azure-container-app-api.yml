@@ -62,78 +62,29 @@ jobs:
             echo "Setting Azure subscription"
             az account set --subscription "$AZURE_SUBSCRIPTION_ID"
             az account show --query "{subscriptionId:id, tenantId:tenantId, name:name}" -o table
-            echo "Reading current API Container App"
-            az resource show \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
+            echo "Updating API Container App through containerapp CLI"
+            az extension add --name containerapp --upgrade --allow-preview true
+            az containerapp secret set \
               --name "$AZURE_API_CONTAINER_APP_NAME" \
-              --resource-type "Microsoft.App/containerApps" \
-              --api-version "2024-03-01" \
-              --output json > /tmp/current-api-containerapp.json
-
-            echo "Rendering API Container App ARM template"
-            python - <<'PY' > /tmp/api-containerapp-template.json
-            import json
-            import os
-
-            with open("/tmp/current-api-containerapp.json", encoding="utf-8") as file:
-                current = json.load(file)
-
-            properties = current["properties"]
-            configuration = properties.get("configuration") or {}
-            template = properties.get("template") or {}
-            containers = template.get("containers") or [{}]
-            container = containers[0]
-            container["name"] = container.get("name") or os.environ["AZURE_API_CONTAINER_APP_NAME"]
-            container["image"] = os.environ["API_IMAGE"]
-            container["env"] = [
-                {"name": "ENVIRONMENT", "value": "azure"},
-                {"name": "PERSISTENCE_ENABLED", "value": "false"},
-                {"name": "LLM_PROVIDER", "value": "gemini"},
-                {"name": "GEMINI_MODEL", "value": os.environ["GEMINI_MODEL"]},
-                {"name": "LLM_ACCESS_CONTROL_ENABLED", "value": "true"},
-                {"name": "CORS_ORIGINS", "value": os.environ["CORS_ORIGINS"]},
-                {"name": "GEMINI_API_KEY", "secretRef": "gemini-api-key"},
-                {"name": "DEMO_ACCESS_CODE", "secretRef": "demo-access-code"},
-            ]
-            template["containers"] = [container]
-            template["scale"] = {"minReplicas": 0, "maxReplicas": 1}
-            configuration["secrets"] = [
-                {"name": "gemini-api-key", "value": os.environ["GEMINI_API_KEY"]},
-                {"name": "demo-access-code", "value": os.environ["DEMO_ACCESS_CODE"]},
-            ]
-
-            next_properties = {
-                "managedEnvironmentId": properties["managedEnvironmentId"],
-                "configuration": configuration,
-                "template": template,
-            }
-
-            deployment = {
-                "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-                "contentVersion": "1.0.0.0",
-                "resources": [
-                    {
-                        "type": "Microsoft.App/containerApps",
-                        "apiVersion": "2024-03-01",
-                        "name": current["name"],
-                        "location": current["location"],
-                        "properties": next_properties,
-                    }
-                ],
-                "outputs": {
-                    "containerAppName": {
-                        "type": "string",
-                        "value": current["name"],
-                    }
-                }
-            }
-            print(json.dumps(deployment))
-            PY
-
-            echo "Deploying API Container App revision"
-            az deployment group create \
               --resource-group "$AZURE_RESOURCE_GROUP" \
-              --template-file /tmp/api-containerapp-template.json
+              --secrets \
+                gemini-api-key="$GEMINI_API_KEY" \
+                demo-access-code="$DEMO_ACCESS_CODE"
+            az containerapp update \
+              --name "$AZURE_API_CONTAINER_APP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --image "$API_IMAGE" \
+              --min-replicas 0 \
+              --max-replicas 1 \
+              --set-env-vars \
+                ENVIRONMENT=azure \
+                PERSISTENCE_ENABLED=false \
+                LLM_PROVIDER=gemini \
+                GEMINI_MODEL="$GEMINI_MODEL" \
+                LLM_ACCESS_CONTROL_ENABLED=true \
+                CORS_ORIGINS="$CORS_ORIGINS" \
+                GEMINI_API_KEY=secretref:gemini-api-key \
+                DEMO_ACCESS_CODE=secretref:demo-access-code
         env:
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}

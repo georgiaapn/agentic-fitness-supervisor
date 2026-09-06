@@ -62,68 +62,17 @@ jobs:
             echo "Setting Azure subscription"
             az account set --subscription "$AZURE_SUBSCRIPTION_ID"
             az account show --query "{subscriptionId:id, tenantId:tenantId, name:name}" -o table
-            echo "Reading current Web Container App"
-            az resource show \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
+            echo "Updating Web Container App through containerapp CLI"
+            az extension add --name containerapp --upgrade --allow-preview true
+            az containerapp update \
               --name "$AZURE_WEB_CONTAINER_APP_NAME" \
-              --resource-type "Microsoft.App/containerApps" \
-              --api-version "2024-03-01" \
-              --output json > /tmp/current-web-containerapp.json
-
-            echo "Rendering Web Container App ARM template"
-            python - <<'PY' > /tmp/web-containerapp-template.json
-            import json
-            import os
-
-            with open("/tmp/current-web-containerapp.json", encoding="utf-8") as file:
-                current = json.load(file)
-
-            properties = current["properties"]
-            configuration = properties.get("configuration") or {}
-            template = properties.get("template") or {}
-            containers = template.get("containers") or [{}]
-            container = containers[0]
-            container["name"] = container.get("name") or os.environ["AZURE_WEB_CONTAINER_APP_NAME"]
-            container["image"] = os.environ["WEB_IMAGE"]
-            container["env"] = [
-                {"name": "NODE_ENV", "value": "production"},
-                {"name": "NEXT_PUBLIC_API_URL", "value": os.environ["NEXT_PUBLIC_API_URL"]},
-            ]
-            template["containers"] = [container]
-            template["scale"] = {"minReplicas": 0, "maxReplicas": 1}
-
-            next_properties = {
-                "managedEnvironmentId": properties["managedEnvironmentId"],
-                "configuration": configuration,
-                "template": template,
-            }
-
-            deployment = {
-                "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-                "contentVersion": "1.0.0.0",
-                "resources": [
-                    {
-                        "type": "Microsoft.App/containerApps",
-                        "apiVersion": "2024-03-01",
-                        "name": current["name"],
-                        "location": current["location"],
-                        "properties": next_properties,
-                    }
-                ],
-                "outputs": {
-                    "containerAppName": {
-                        "type": "string",
-                        "value": current["name"],
-                    }
-                }
-            }
-            print(json.dumps(deployment))
-            PY
-
-            echo "Deploying Web Container App revision"
-            az deployment group create \
               --resource-group "$AZURE_RESOURCE_GROUP" \
-              --template-file /tmp/web-containerapp-template.json
+              --image "$WEB_IMAGE" \
+              --min-replicas 0 \
+              --max-replicas 1 \
+              --set-env-vars \
+                NODE_ENV=production \
+                NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL"
         env:
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
