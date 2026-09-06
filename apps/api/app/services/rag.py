@@ -107,7 +107,7 @@ class RagService:
             hits = self._search(
                 "nutrition_knowledge_base",
                 query,
-                limit=4,
+                limit=16,
                 prefer_terms=_nutrition_prefer_terms(profile),
                 avoid_terms=_nutrition_avoid_terms(profile),
             )

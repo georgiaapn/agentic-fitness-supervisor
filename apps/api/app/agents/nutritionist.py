@@ -85,14 +85,15 @@ def create_nutrition_plan(
             "Requirements:\n"
             "- Keep calorie_target within 150 kcal of the calculated target.\n"
             "- Keep protein_g within 15g of the calculated target.\n"
-            "- Include 4 meals or meal slots.\n"
+            "- Include exactly 4 meal slots in this order: Breakfast, Snack, Lunch, Dinner.\n"
             "- Treat the saved weekly nutrition baseline as the starting plan when it exists.\n"
             "- If the Supervisor directive mentions lower activity, no training, or recovery day, do not simply copy the baseline meals."
             " Make a visible adjustment: reduce starchy carb portions slightly, keep protein high, and choose recovery-supportive foods.\n"
             "- Explain changes through notes, especially if recovery or lower activity changes the baseline.\n"
             "- Respect dietary restrictions.\n"
+            "- Return meals in this exact order: Breakfast, Snack, Lunch, Dinner.\n"
             "- Use retrieved meal_type values as strict slot constraints: Breakfast meals only for Breakfast, "
-            "Lunch meals only for Lunch, Dinner meals only for Dinner, and Snack meals only for Snack.\n"
+            "Snack meals only for Snack, Lunch meals only for Lunch, and Dinner meals only for Dinner.\n"
             "- Do not place chicken, fish, beef, pork, pasta bowls, stews, or soups at Breakfast unless the retrieved "
             "context explicitly labels that meal as Breakfast.\n"
             "- Include 2 to 5 concise notes.\n"
@@ -188,14 +189,14 @@ def create_weekly_nutrition_plan(
             f"Retrieved nutrition context:\n{_rag_context_json(hits)}\n\n"
             "Requirements:\n"
             "- Include exactly 7 days, Monday through Sunday.\n"
-            "- Each day must include 4 or 5 meals.\n"
+            "- Each day must include exactly 4 meals in this order: Breakfast, Snack, Lunch, Dinner.\n"
             "- Every meal must include meal_type, name, calories, protein_g, carbs_g, and fat_g.\n"
             "- Keep daily_calorie_target within 150 kcal of the calculated target.\n"
             "- Keep daily_protein_g within 15g of the calculated target.\n"
             "- Respect dietary restrictions from the profile.\n"
             "- Use retrieved meals as grounding where they fit, and treat retrieved meal_type as a strict slot constraint.\n"
-            "- Breakfast context may only be used for Breakfast, Lunch context only for Lunch, Dinner context only for Dinner, "
-            "and Snack context only for Snack.\n"
+            "- Breakfast context may only be used for Breakfast, Snack context only for Snack, Lunch context only for Lunch, "
+            "and Dinner context only for Dinner.\n"
             "- Do not place chicken, fish, beef, pork, pasta bowls, stews, or soups at Breakfast unless the retrieved "
             "context explicitly labels that meal as Breakfast.\n"
             "- Include 2 to 5 concise notes.\n"
@@ -205,7 +206,7 @@ def create_weekly_nutrition_plan(
     if generated is None:
         logger.info("Nutrition weekly plan using deterministic fallback: Gemini generation failed.")
         return fallback
-    if len(generated.days) != 7 or any(len(day.meals) < 4 or len(day.meals) > 5 for day in generated.days):
+    if len(generated.days) != 7 or any(len(day.meals) != 4 for day in generated.days):
         logger.info("Nutrition weekly plan using deterministic fallback: Gemini returned invalid week shape.")
         return fallback
     if abs(generated.daily_calorie_target - daily_calories) > 150:
@@ -246,42 +247,63 @@ def _weekly_days_from_rag(
     daily_calories: int,
     daily_protein_g: int,
 ) -> list[WeeklyNutritionDay]:
-    meal_templates = _meal_templates(hits)
+    meal_templates = _meal_templates_by_type(hits)
     days = []
     for index, day in enumerate(WEEK_DAYS):
-        rotated = meal_templates[index % len(meal_templates):] + meal_templates[: index % len(meal_templates)]
         days.append(
             WeeklyNutritionDay(
                 day=day,
                 focus=_day_focus(index),
-                meals=_macro_balanced_meals(rotated[:5], daily_calories, daily_protein_g),
+                meals=_macro_balanced_meals(meal_templates, index, daily_calories, daily_protein_g),
             )
         )
     return days
 
 
-def _meal_templates(hits: list[RagHit]) -> list[str]:
-    retrieved = [hit.title for hit in hits[:12] if hit.title]
-    fallback = [
-        "Greek yogurt bowl with berries and oats",
-        "Chicken grain bowl with leafy greens and olive oil",
-        "Lentil soup with potatoes and vegetables",
-        "Cottage cheese with fruit and walnuts",
-        "Tofu rice bowl with vegetables",
-        "Turkey wrap with salad and hummus",
-        "Egg omelet with whole-grain toast",
-    ]
-    return retrieved + [meal for meal in fallback if meal not in retrieved]
+def _meal_templates_by_type(hits: list[RagHit]) -> dict[str, list[str]]:
+    fallback = {
+        "Breakfast": [
+            "Greek yogurt bowl with berries and oats",
+            "Egg omelet with whole-grain toast",
+            "Cottage cheese with fruit and walnuts",
+        ],
+        "Lunch": [
+            "Chicken grain bowl with leafy greens and olive oil",
+            "Turkey wrap with salad and hummus",
+            "Tofu rice bowl with vegetables",
+        ],
+        "Dinner": [
+            "Salmon with potatoes and roasted vegetables",
+            "Lentil stew with vegetables",
+            "Tofu rice bowl with vegetables",
+        ],
+        "Snack": [
+            "Cottage cheese with fruit and walnuts",
+            "Greek yogurt bowl with berries and oats",
+            "Hummus with vegetables",
+        ],
+    }
+    templates = {meal_type: list(meals) for meal_type, meals in fallback.items()}
+
+    for hit in hits:
+        meal_type = _meal_type_from_hit(hit)
+        if meal_type is None or not hit.title:
+            continue
+        if hit.title not in templates[meal_type]:
+            templates[meal_type].insert(0, hit.title)
+
+    return templates
 
 
 def _macro_balanced_meals(
-    meal_names: list[str],
+    meal_templates: dict[str, list[str]],
+    day_offset: int,
     daily_calories: int,
     daily_protein_g: int,
 ) -> list[WeeklyNutritionMeal]:
-    meal_types = ["Breakfast", "Lunch", "Snack", "Dinner", "Evening snack"]
-    calorie_weights = [0.23, 0.29, 0.13, 0.27, 0.08]
-    protein_weights = [0.22, 0.28, 0.14, 0.28, 0.08]
+    meal_types = ["Breakfast", "Snack", "Lunch", "Dinner"]
+    calorie_weights = [0.25, 0.15, 0.32, 0.28]
+    protein_weights = [0.24, 0.14, 0.32, 0.30]
     meals = []
     for index, meal_type in enumerate(meal_types):
         calories = max(120, int(daily_calories * calorie_weights[index]))
@@ -291,7 +313,7 @@ def _macro_balanced_meals(
         meals.append(
             WeeklyNutritionMeal(
                 meal_type=meal_type,
-                name=meal_names[index % len(meal_names)],
+                name=_meal_name_for_slot(meal_templates, meal_type, day_offset),
                 calories=calories,
                 protein_g=protein,
                 carbs_g=carbs,
@@ -299,6 +321,24 @@ def _macro_balanced_meals(
             )
         )
     return meals
+
+
+def _meal_name_for_slot(meal_templates: dict[str, list[str]], meal_type: str, day_offset: int) -> str:
+    options = meal_templates[meal_type]
+    return options[day_offset % len(options)]
+
+
+def _meal_type_from_hit(hit: RagHit) -> str | None:
+    snippet = hit.snippet.lower()
+    if "meal type: breakfast" in snippet:
+        return "Breakfast"
+    if "meal type: lunch" in snippet:
+        return "Lunch"
+    if "meal type: dinner" in snippet:
+        return "Dinner"
+    if "meal type: snack" in snippet:
+        return "Snack"
+    return None
 
 
 def _day_focus(index: int) -> str:
@@ -361,4 +401,4 @@ def _macro_summary(snippet: str) -> str:
 
 
 def _rag_context_json(hits: list[RagHit]) -> str:
-    return "[" + ", ".join(hit.model_dump_json() for hit in hits[:6]) + "]"
+    return "[" + ", ".join(hit.model_dump_json() for hit in hits[:12]) + "]"

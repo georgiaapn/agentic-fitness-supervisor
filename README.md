@@ -136,7 +136,7 @@ The Trainer Agent creates workout recommendations.
 
 The Nutritionist Agent creates nutrition recommendations.
 
-- Generates a 7-day nutrition plan with 4 or 5 meals per day.
+- Generates a 7-day nutrition plan with Breakfast, Snack, Lunch, and Dinner.
 - Uses profile goal, dietary restrictions, body weight, and calculated targets.
 - Retrieves meal context from `nutrition_knowledge_base`.
 - Uses `meal_type` as grounding so Breakfast, Lunch, Dinner, and Snack remain
@@ -497,16 +497,14 @@ not redistribute exercise images or videos.
 Expected file:
 
 ```text
-data/raw/nutrition/healthy_eating_dataset.csv
+data/raw/nutrition/healthy_meal_dataset.csv
 ```
 
 Expected columns:
 
 ```text
-meal_id, meal_name, cuisine, meal_type, diet_type, calories, protein_g,
-carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, cholesterol_mg,
-serving_size_g, cooking_method, prep_time_min, cook_time_min, rating,
-is_healthy, image_url
+meal_id, meal_name, meal_type, diet_type, calories, protein_g, carbs_g,
+fat_g, fiber_g, sugar_g, sodium_mg, cholesterol_mg, serving_size_g
 ```
 
 Commands:
@@ -517,8 +515,9 @@ python -m app.scripts.ingest_nutrition_dataset --replace
 python -m app.scripts.embed_knowledge_chunks --collection nutrition_knowledge_base
 ```
 
-By default, ingestion keeps only rows where `is_healthy` is true. Use
-`--include-unhealthy` only for experiments.
+All rows in the current custom dataset are treated as healthy. If a future
+nutrition dataset includes an `is_healthy` column, ingestion will use it by
+default and keep only healthy rows unless `--include-unhealthy` is passed.
 
 ### Recovery Knowledge
 
@@ -693,11 +692,12 @@ Important media exception:
 Source:
 
 ```text
-https://www.kaggle.com/datasets/khushikyad001/healthy-eating-dataset
+data/raw/nutrition/healthy_meal_dataset.csv
 ```
 
-The Kaggle page lists the dataset license as MIT. The dataset is synthetic and
-is used as demo grounding data for meal recommendations.
+The nutrition dataset is a custom generated demo dataset maintained with the
+project. It is used as grounding data for meal recommendations and contains meal
+type, diet type, serving size, calories, and macro/micronutrient fields.
 
 ### Wearable Dataset
 

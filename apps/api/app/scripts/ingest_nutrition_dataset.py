@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 COLLECTION = "nutrition_knowledge_base"
-SOURCE_URI = "kaggle://khushikyad001/healthy-eating-dataset/healthy_eating_dataset.csv"
+SOURCE_URI = "local://data/raw/nutrition/healthy_meal_dataset.csv"
 
 
 def ingest_nutrition_dataset(
@@ -164,7 +164,7 @@ def _metadata_for_recipe(recipe: dict[str, Any]) -> dict[str, Any]:
         "prep_time_min": _number(_value(recipe, "prep_time_min")),
         "cook_time_min": _number(_value(recipe, "cook_time_min")),
         "rating": _number(_value(recipe, "rating")),
-        "is_healthy": _bool(_value(recipe, "is_healthy")),
+        "is_healthy": _is_healthy(recipe),
         "image_url": _string(_value(recipe, "image_url")),
     }
 
@@ -221,8 +221,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dataset",
         type=Path,
-        default=Path("../../data/raw/nutrition/healthy_eating_dataset.csv"),
-        help="Path to healthy_eating_dataset.csv from apps/api.",
+        default=Path("../../data/raw/nutrition/healthy_meal_dataset.csv"),
+        help="Path to healthy_meal_dataset.csv from apps/api.",
     )
     parser.add_argument(
         "--replace",
@@ -233,7 +233,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--include-unhealthy",
         action="store_true",
-        help="Include rows where is_healthy is false. By default only healthy rows are ingested.",
+        help=(
+            "Include rows where is_healthy is false. If the dataset has no is_healthy column, "
+            "all rows are treated as healthy."
+        ),
     )
     return parser.parse_args()
 
