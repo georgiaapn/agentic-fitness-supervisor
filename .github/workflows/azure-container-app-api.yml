@@ -52,11 +52,17 @@ jobs:
       - uses: azure/cli@v2
         with:
           inlineScript: |
-            az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+            AZURE_SUBSCRIPTION_ID="$(printf '%s' "$AZURE_SUBSCRIPTION_ID" | xargs)"
+            AZURE_RESOURCE_GROUP="$(printf '%s' "$AZURE_RESOURCE_GROUP" | xargs)"
+            AZURE_API_CONTAINER_APP_NAME="$(printf '%s' "$AZURE_API_CONTAINER_APP_NAME" | xargs)"
+            GEMINI_MODEL="$(printf '%s' "$GEMINI_MODEL" | xargs)"
+            CORS_ORIGINS="$(printf '%s' "$CORS_ORIGINS" | xargs)"
+
+            az account set --subscription "$AZURE_SUBSCRIPTION_ID"
             az account show --query "{subscriptionId:id, tenantId:tenantId, name:name}" -o table
             az resource show \
-              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-              --name "${{ vars.AZURE_API_CONTAINER_APP_NAME }}" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_API_CONTAINER_APP_NAME" \
               --resource-type "Microsoft.App/containerApps" \
               --output json > /tmp/current-api-containerapp.json
 
@@ -120,9 +126,11 @@ jobs:
             PY
 
             az deployment group create \
-              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
               --template-file /tmp/api-containerapp-template.json
         env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
           AZURE_API_CONTAINER_APP_NAME: ${{ vars.AZURE_API_CONTAINER_APP_NAME }}
           API_IMAGE: ${{ env.IMAGE_NAME }}:${{ github.sha }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

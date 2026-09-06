@@ -53,11 +53,16 @@ jobs:
       - uses: azure/cli@v2
         with:
           inlineScript: |
-            az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+            AZURE_SUBSCRIPTION_ID="$(printf '%s' "$AZURE_SUBSCRIPTION_ID" | xargs)"
+            AZURE_RESOURCE_GROUP="$(printf '%s' "$AZURE_RESOURCE_GROUP" | xargs)"
+            AZURE_WEB_CONTAINER_APP_NAME="$(printf '%s' "$AZURE_WEB_CONTAINER_APP_NAME" | xargs)"
+            NEXT_PUBLIC_API_URL="$(printf '%s' "$NEXT_PUBLIC_API_URL" | xargs)"
+
+            az account set --subscription "$AZURE_SUBSCRIPTION_ID"
             az account show --query "{subscriptionId:id, tenantId:tenantId, name:name}" -o table
             az resource show \
-              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-              --name "${{ vars.AZURE_WEB_CONTAINER_APP_NAME }}" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_WEB_CONTAINER_APP_NAME" \
               --resource-type "Microsoft.App/containerApps" \
               --output json > /tmp/current-web-containerapp.json
 
@@ -111,9 +116,11 @@ jobs:
             PY
 
             az deployment group create \
-              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
               --template-file /tmp/web-containerapp-template.json
         env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
           AZURE_WEB_CONTAINER_APP_NAME: ${{ vars.AZURE_WEB_CONTAINER_APP_NAME }}
           WEB_IMAGE: ${{ env.IMAGE_NAME }}:${{ github.sha }}
           NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
