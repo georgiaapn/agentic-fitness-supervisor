@@ -54,46 +54,74 @@ jobs:
           inlineScript: |
             az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
             az account show --query "{subscriptionId:id, tenantId:tenantId, name:name}" -o table
-            APP_URL="https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ vars.AZURE_RESOURCE_GROUP }}/providers/Microsoft.App/containerApps/${{ vars.AZURE_API_CONTAINER_APP_NAME }}?api-version=2024-03-01"
-            az rest --method get --url "$APP_URL" --query "{name:name, location:location}" -o table
+            az resource show \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --name "${{ vars.AZURE_API_CONTAINER_APP_NAME }}" \
+              --resource-type "Microsoft.App/containerApps" \
+              --output json > /tmp/current-api-containerapp.json
 
-            python - <<'PY' > /tmp/api-containerapp-patch.json
+            python - <<'PY' > /tmp/api-containerapp-template.json
             import json
             import os
 
-            body = {
-                "properties": {
-                    "configuration": {
-                        "secrets": [
-                            {"name": "gemini-api-key", "value": os.environ["GEMINI_API_KEY"]},
-                            {"name": "demo-access-code", "value": os.environ["DEMO_ACCESS_CODE"]},
-                        ]
-                    },
-                    "template": {
-                        "scale": {"minReplicas": 0, "maxReplicas": 1},
-                        "containers": [
-                            {
-                                "name": os.environ["AZURE_API_CONTAINER_APP_NAME"],
-                                "image": os.environ["API_IMAGE"],
-                                "env": [
-                                    {"name": "ENVIRONMENT", "value": "azure"},
-                                    {"name": "PERSISTENCE_ENABLED", "value": "false"},
-                                    {"name": "LLM_PROVIDER", "value": "gemini"},
-                                    {"name": "GEMINI_MODEL", "value": os.environ["GEMINI_MODEL"]},
-                                    {"name": "LLM_ACCESS_CONTROL_ENABLED", "value": "true"},
-                                    {"name": "CORS_ORIGINS", "value": os.environ["CORS_ORIGINS"]},
-                                    {"name": "GEMINI_API_KEY", "secretRef": "gemini-api-key"},
-                                    {"name": "DEMO_ACCESS_CODE", "secretRef": "demo-access-code"},
-                                ],
-                            }
-                        ],
-                    },
+            with open("/tmp/current-api-containerapp.json", encoding="utf-8") as file:
+                current = json.load(file)
+
+            properties = current["properties"]
+            configuration = properties.get("configuration") or {}
+            template = properties.get("template") or {}
+            containers = template.get("containers") or [{}]
+            container = containers[0]
+            container["name"] = container.get("name") or os.environ["AZURE_API_CONTAINER_APP_NAME"]
+            container["image"] = os.environ["API_IMAGE"]
+            container["env"] = [
+                {"name": "ENVIRONMENT", "value": "azure"},
+                {"name": "PERSISTENCE_ENABLED", "value": "false"},
+                {"name": "LLM_PROVIDER", "value": "gemini"},
+                {"name": "GEMINI_MODEL", "value": os.environ["GEMINI_MODEL"]},
+                {"name": "LLM_ACCESS_CONTROL_ENABLED", "value": "true"},
+                {"name": "CORS_ORIGINS", "value": os.environ["CORS_ORIGINS"]},
+                {"name": "GEMINI_API_KEY", "secretRef": "gemini-api-key"},
+                {"name": "DEMO_ACCESS_CODE", "secretRef": "demo-access-code"},
+            ]
+            template["containers"] = [container]
+            template["scale"] = {"minReplicas": 0, "maxReplicas": 1}
+            configuration["secrets"] = [
+                {"name": "gemini-api-key", "value": os.environ["GEMINI_API_KEY"]},
+                {"name": "demo-access-code", "value": os.environ["DEMO_ACCESS_CODE"]},
+            ]
+
+            next_properties = {
+                "managedEnvironmentId": properties["managedEnvironmentId"],
+                "configuration": configuration,
+                "template": template,
+            }
+
+            deployment = {
+                "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                "contentVersion": "1.0.0.0",
+                "resources": [
+                    {
+                        "type": "Microsoft.App/containerApps",
+                        "apiVersion": "2024-03-01",
+                        "name": current["name"],
+                        "location": current["location"],
+                        "properties": next_properties,
+                    }
+                ],
+                "outputs": {
+                    "containerAppName": {
+                        "type": "string",
+                        "value": current["name"],
+                    }
                 }
             }
-            print(json.dumps(body))
+            print(json.dumps(deployment))
             PY
 
-            az rest --method patch --url "$APP_URL" --body @/tmp/api-containerapp-patch.json
+            az deployment group create \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --template-file /tmp/api-containerapp-template.json
         env:
           AZURE_API_CONTAINER_APP_NAME: ${{ vars.AZURE_API_CONTAINER_APP_NAME }}
           API_IMAGE: ${{ env.IMAGE_NAME }}:${{ github.sha }}

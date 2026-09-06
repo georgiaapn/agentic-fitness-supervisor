@@ -55,34 +55,64 @@ jobs:
           inlineScript: |
             az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
             az account show --query "{subscriptionId:id, tenantId:tenantId, name:name}" -o table
-            APP_URL="https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ vars.AZURE_RESOURCE_GROUP }}/providers/Microsoft.App/containerApps/${{ vars.AZURE_WEB_CONTAINER_APP_NAME }}?api-version=2024-03-01"
-            az rest --method get --url "$APP_URL" --query "{name:name, location:location}" -o table
+            az resource show \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --name "${{ vars.AZURE_WEB_CONTAINER_APP_NAME }}" \
+              --resource-type "Microsoft.App/containerApps" \
+              --output json > /tmp/current-web-containerapp.json
 
-            python - <<'PY' > /tmp/web-containerapp-patch.json
+            python - <<'PY' > /tmp/web-containerapp-template.json
             import json
             import os
 
-            body = {
-                "properties": {
-                    "template": {
-                        "scale": {"minReplicas": 0, "maxReplicas": 1},
-                        "containers": [
-                            {
-                                "name": os.environ["AZURE_WEB_CONTAINER_APP_NAME"],
-                                "image": os.environ["WEB_IMAGE"],
-                                "env": [
-                                    {"name": "NODE_ENV", "value": "production"},
-                                    {"name": "NEXT_PUBLIC_API_URL", "value": os.environ["NEXT_PUBLIC_API_URL"]},
-                                ],
-                            }
-                        ],
-                    },
+            with open("/tmp/current-web-containerapp.json", encoding="utf-8") as file:
+                current = json.load(file)
+
+            properties = current["properties"]
+            configuration = properties.get("configuration") or {}
+            template = properties.get("template") or {}
+            containers = template.get("containers") or [{}]
+            container = containers[0]
+            container["name"] = container.get("name") or os.environ["AZURE_WEB_CONTAINER_APP_NAME"]
+            container["image"] = os.environ["WEB_IMAGE"]
+            container["env"] = [
+                {"name": "NODE_ENV", "value": "production"},
+                {"name": "NEXT_PUBLIC_API_URL", "value": os.environ["NEXT_PUBLIC_API_URL"]},
+            ]
+            template["containers"] = [container]
+            template["scale"] = {"minReplicas": 0, "maxReplicas": 1}
+
+            next_properties = {
+                "managedEnvironmentId": properties["managedEnvironmentId"],
+                "configuration": configuration,
+                "template": template,
+            }
+
+            deployment = {
+                "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                "contentVersion": "1.0.0.0",
+                "resources": [
+                    {
+                        "type": "Microsoft.App/containerApps",
+                        "apiVersion": "2024-03-01",
+                        "name": current["name"],
+                        "location": current["location"],
+                        "properties": next_properties,
+                    }
+                ],
+                "outputs": {
+                    "containerAppName": {
+                        "type": "string",
+                        "value": current["name"],
+                    }
                 }
             }
-            print(json.dumps(body))
+            print(json.dumps(deployment))
             PY
 
-            az rest --method patch --url "$APP_URL" --body @/tmp/web-containerapp-patch.json
+            az deployment group create \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --template-file /tmp/web-containerapp-template.json
         env:
           AZURE_WEB_CONTAINER_APP_NAME: ${{ vars.AZURE_WEB_CONTAINER_APP_NAME }}
           WEB_IMAGE: ${{ env.IMAGE_NAME }}:${{ github.sha }}
