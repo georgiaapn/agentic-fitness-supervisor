@@ -62,8 +62,6 @@ jobs:
             echo "Setting Azure subscription"
             az account set --subscription "$AZURE_SUBSCRIPTION_ID"
             az account show --query "{subscriptionId:id, tenantId:tenantId, name:name}" -o table
-            echo "Checking resource group"
-            az group show --name "$AZURE_RESOURCE_GROUP" --query "{name:name, location:location}" -o table
             echo "Reading current Web Container App"
             az resource show \
               --resource-group "$AZURE_RESOURCE_GROUP" \
