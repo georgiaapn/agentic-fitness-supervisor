@@ -76,7 +76,8 @@ The app supports three main user flows:
 | Embeddings | sentence-transformers, `intfloat/multilingual-e5-small` |
 | Database driver | psycopg 3 |
 | Local infrastructure | Docker Compose |
-| Cloud-friendly option | Azure Static Web Apps, Azure Container Apps, managed Postgres |
+| Cloud demo | Azure Container Apps Consumption for frontend and backend |
+| LLM cost control | Backend-only demo access code with deterministic fallback |
 
 ## Architecture
 
@@ -359,9 +360,13 @@ DATABASE_URL=postgresql+psycopg://fitness:fitness@localhost:5432/fitness_agents
 LLM_PROVIDER=gemini
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-3.5-flash-lite
+LLM_ACCESS_CONTROL_ENABLED=true
+DEMO_ACCESS_CODE=
 LLM_TIMEOUT_SECONDS=30
 EMBEDDING_MODEL=intfloat/multilingual-e5-small
+ENVIRONMENT=local
 PERSISTENCE_ENABLED=true
+CORS_ORIGINS=http://localhost:3000
 ```
 
 Frontend `.env` lives in `apps/web/.env.local`.
@@ -583,6 +588,10 @@ Self-reported check-in fields:
 The app does not rely on the LLM for every important decision.
 
 - Recovery scoring and safety constraints are deterministic.
+- Public cloud demo requests can run in deterministic fallback mode when no
+  valid demo access code is provided.
+- LLM-backed generation is gated in the backend through `DEMO_ACCESS_CODE`; the
+  key is never exposed as a frontend environment variable.
 - LLM responses must validate against Pydantic schemas.
 - If Gemini is unavailable, rate-limited, times out, or returns invalid JSON,
   deterministic fallback plans are returned.
@@ -628,17 +637,27 @@ Expected healthy response includes:
 
 ## Deployment Notes
 
-The project can run fully locally with Docker Compose. For a public cloud demo,
-the recommended free-friendly shape is:
+The project can run fully locally with Docker Compose. For the current public
+cloud demo, the recommended forever-free-friendly Azure shape is:
 
-- frontend: Azure Static Web Apps
-- backend: Azure Container Apps
-- database: Neon, Supabase, or another managed PostgreSQL provider with pgvector
-- LLM: Gemini API free tier
+- frontend: Azure Container Apps Consumption with `minReplicas=0`
+- backend: Azure Container Apps Consumption with `minReplicas=0`
+- database: keep the existing local PostgreSQL/pgvector setup; deploy the Azure
+  demo with `PERSISTENCE_ENABLED=false` unless a separate free database is added
+- LLM: Gemini API behind backend-side demo access control, with deterministic
+  fallback for public visitors
 
 Running a local LLM such as Ollama is useful for development, but it is not a
 good fit for a free Azure-hosted public demo because it needs persistent compute
 and more memory.
+
+Azure deployment reference:
+
+```text
+docs/azure-free-demo.md
+.github/workflows/azure-container-app-web.yml
+.github/workflows/azure-container-app-api.yml
+```
 
 ## Limitations
 

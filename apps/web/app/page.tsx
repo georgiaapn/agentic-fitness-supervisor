@@ -312,6 +312,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [demoAccessCode, setDemoAccessCode] = useState("");
 
   useEffect(() => {
     let ignore = false;
@@ -351,6 +352,19 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    setDemoAccessCode(window.localStorage.getItem("athletiq-demo-access-code") ?? "");
+  }, []);
+
+  useEffect(() => {
+    const trimmedCode = demoAccessCode.trim();
+    if (trimmedCode) {
+      window.localStorage.setItem("athletiq-demo-access-code", trimmedCode);
+      return;
+    }
+    window.localStorage.removeItem("athletiq-demo-access-code");
+  }, [demoAccessCode]);
+
+  useEffect(() => {
     if (toast === null) return;
 
     const timeout = window.setTimeout(() => setToast(null), 4200);
@@ -371,14 +385,21 @@ export default function Home() {
   const hasTodayAdjustment = todayAdjustment !== undefined;
   const canRunCheckIn = hasWorkoutBaseline && hasNutritionBaseline && !hasTodayAdjustment;
 
-  async function generateWorkoutPlan() { 
+  function llmRequestHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const trimmedCode = demoAccessCode.trim();
+    if (trimmedCode) headers["X-Demo-Code"] = trimmedCode;
+    return headers;
+  }
+
+  async function generateWorkoutPlan() {
     setRunState("running");
     setActiveAction("workout");
     setError(null);
     try {
       const response = await fetch(`${apiUrl()}/api/plans/workout/weekly`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: llmRequestHeaders(),
         body: JSON.stringify(profile)
       });
       if (!response.ok) throw new Error("Workout plan could not be generated.");
@@ -402,7 +423,7 @@ export default function Home() {
     try {
       const response = await fetch(`${apiUrl()}/api/plans/nutrition/weekly`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: llmRequestHeaders(),
         body: JSON.stringify(profile)
       });
       if (!response.ok) throw new Error("Diet plan could not be generated.");
@@ -428,7 +449,7 @@ export default function Home() {
     try {
       const response = await fetch(`${apiUrl()}/api/check-ins/simulate`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: llmRequestHeaders(),
         body: JSON.stringify({ profile, self_report: selfReport })
       });
 
@@ -697,7 +718,9 @@ export default function Home() {
                 profile={profile}
                 profileError={profileError}
                 profileState={profileState}
+                demoAccessCode={demoAccessCode}
                 onChange={setProfile}
+                onDemoAccessCodeChange={setDemoAccessCode}
                 onSubmit={saveProfile}
               />
             ) : null}
@@ -1441,13 +1464,17 @@ function ProfileForm({
   profile,
   profileState,
   profileError,
+  demoAccessCode,
   onChange,
+  onDemoAccessCodeChange,
   onSubmit
 }: {
   profile: UserProfile;
   profileState: string;
   profileError: string | null;
+  demoAccessCode: string;
   onChange: (profile: UserProfile) => void;
+  onDemoAccessCodeChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
@@ -1522,6 +1549,16 @@ function ProfileForm({
           onChange={(value) => onChange({ ...profile, injury_history: splitCsv(value) })}
         />
       </div>
+      <label className="block text-sm font-medium text-ink md:col-span-2">
+        LLM demo access code
+        <input
+          className="mt-1 w-full rounded-control border border-[#17202A]/20 bg-white/70 px-3 py-2 text-sm text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] transition focus:border-[#1428FF]"
+          placeholder="Leave empty for cost-safe fallback mode"
+          type="password"
+          value={demoAccessCode}
+          onChange={(event) => onDemoAccessCodeChange(event.target.value)}
+        />
+      </label>
       {profileError ? (
         <p className="rounded-control border border-recovery bg-[#FFF4F0] px-3 py-2 text-sm text-recovery md:col-span-2">
           {profileError}

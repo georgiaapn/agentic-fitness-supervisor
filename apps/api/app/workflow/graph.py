@@ -16,7 +16,7 @@ from app.schemas import (
     WeeklyNutritionPlan,
     WeeklyWorkoutPlan,
 )
-from app.services.llm import get_llm_client
+from app.services.llm import LlmClient, get_llm_client
 from app.services.rag import RagService
 from app.services.saved_plans import get_saved_generated_plan
 from app.workflow.state import FitnessGraphState, SpecialistNode
@@ -94,7 +94,7 @@ def trainer_node(state: FitnessGraphState) -> FitnessGraphState:
         state["wearable"],
         state["directives"],
         rag,
-        get_llm_client(),
+        state.get("llm") or get_llm_client(),
         baseline_workout=state.get("baseline_workout"),
         current_day=state.get("current_day"),
     )
@@ -107,7 +107,7 @@ def nutritionist_node(state: FitnessGraphState) -> FitnessGraphState:
         state["profile"],
         state["directives"],
         rag,
-        get_llm_client(),
+        state.get("llm") or get_llm_client(),
         baseline_nutrition=state.get("baseline_nutrition"),
         current_day=state.get("current_day"),
     )
@@ -154,8 +154,9 @@ fitness_graph = build_fitness_graph()
 def run_morning_check_in(
     payload: MorningCheckInRequest,
     db: object | None = None,
+    llm: LlmClient | None = None,
 ) -> DailyBriefingResponse:
-    final_state = fitness_graph.invoke({"request": payload, "db": db})
+    final_state = fitness_graph.invoke({"request": payload, "db": db, "llm": llm or get_llm_client()})
 
     return DailyBriefingResponse(
         profile=final_state["profile"],

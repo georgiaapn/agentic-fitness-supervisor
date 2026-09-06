@@ -3,7 +3,7 @@ import logging
 from typing import Annotated
 
 from fastapi import FastAPI, HTTPException
-from fastapi import Depends
+from fastapi import Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -37,7 +37,7 @@ from app.services.daily_adjustments import (
 )
 from app.services.profiles import get_profile, upsert_profile
 from app.services.saved_plans import delete_saved_generated_plan, list_saved_generated_plans, upsert_saved_generated_plan
-from app.services.llm import get_llm_client
+from app.services.llm import LlmClient, get_llm_client
 from app.services.rag import RagService
 from app.services.wearable_data import WearableDataService
 from app.workflow.graph import run_morning_check_in
@@ -62,7 +62,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -72,18 +72,48 @@ app.add_middleware(
 @app.get("/health")
 def health() -> dict[str, str]:
     llm = get_llm_client()
+    llm_access = "open"
+    if settings.llm_access_control_enabled and settings.demo_access_code:
+        llm_access = "demo-code-protected"
+    elif settings.llm_access_control_enabled and settings.environment != "local":
+        llm_access = "fallback-only"
+
     return {
         "status": "ok",
         "persistence": "enabled" if settings.persistence_enabled else "disabled",
         "llm_provider": llm.provider,
         "llm": "enabled" if llm.enabled else "fallback",
+        "llm_access": llm_access,
     }
+
+
+def get_cost_safe_llm_client(
+    x_demo_code: Annotated[str | None, Header(alias="X-Demo-Code")] = None,
+) -> LlmClient:
+    if not settings.llm_access_control_enabled:
+        return get_llm_client()
+
+    configured_code = settings.demo_access_code.strip()
+    provided_code = (x_demo_code or "").strip()
+
+    if configured_code:
+        if provided_code == configured_code:
+            return get_llm_client()
+        logger.info("LLM disabled for request: missing or invalid demo access code.")
+        return LlmClient()
+
+    if settings.environment.lower() != "local":
+        logger.info("LLM disabled for request: DEMO_ACCESS_CODE is not configured outside local mode.")
+        return LlmClient()
+
+    return get_llm_client()
 
 
 @app.post("/api/check-ins/simulate", response_model=DailyBriefingResponse)
 def simulate_morning_check_in(
     payload: MorningCheckInRequest,
     db: Annotated[Session, Depends(get_db)], # active connection to the database, if persistence is enabled
+    llm: Annotated[LlmClient, Depends(get_cost_safe_llm_client)],
 ) -> DailyBriefingResponse:
     wearable = WearableDataService().sample_snapshot(payload.self_report)
     payload = payload.model_copy(update={"wearable": wearable}) # update the payload to include the sampled wearable snapshot
@@ -93,7 +123,7 @@ def simulate_morning_check_in(
         if saved_profile is not None: # if a saved profile exists in the database
             payload = payload.model_copy(update={"profile": saved_profile}) # use it instead of the provided profile
 
-    briefing = run_morning_check_in(payload, db if settings.persistence_enabled else None)
+    briefing = run_morning_check_in(payload, db if settings.persistence_enabled else None, llm=llm)
     if settings.persistence_enabled:
         persist_daily_briefing(db, payload, briefing)
     return briefing
@@ -103,6 +133,7 @@ def simulate_morning_check_in(
 def generate_weekly_workout_plan(
     profile: UserProfile,
     db: Annotated[Session, Depends(get_db)],
+    llm: Annotated[LlmClient, Depends(get_cost_safe_llm_client)],
 ) -> WeeklyWorkoutPlan:
     if settings.persistence_enabled:
         saved_profile = get_profile(db, profile.user_id)
@@ -111,7 +142,7 @@ def generate_weekly_workout_plan(
     plan = create_weekly_workout_plan(
         profile,
         RagService(db if settings.persistence_enabled else None),
-        get_llm_client(),
+        llm,
     )
     if settings.persistence_enabled:
         upsert_saved_generated_plan(
@@ -128,6 +159,7 @@ def generate_weekly_workout_plan(
 def generate_weekly_diet_plan(
     profile: UserProfile,
     db: Annotated[Session, Depends(get_db)],
+    llm: Annotated[LlmClient, Depends(get_cost_safe_llm_client)],
 ) -> WeeklyNutritionPlan:
     if settings.persistence_enabled:
         saved_profile = get_profile(db, profile.user_id)
@@ -136,7 +168,7 @@ def generate_weekly_diet_plan(
     plan = create_weekly_nutrition_plan(
         profile,
         RagService(db if settings.persistence_enabled else None),
-        get_llm_client(),
+        llm,
     )
     if settings.persistence_enabled:
         upsert_saved_generated_plan(

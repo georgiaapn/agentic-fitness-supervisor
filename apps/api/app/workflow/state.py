@@ -1,5 +1,6 @@
 from typing import Any, Literal, TypedDict
 
+from app.services.llm import LlmClient
 from app.schemas import (
     DecisionAuditItem,
     BaselineNutritionDay,
@@ -20,6 +21,7 @@ SpecialistNode = Literal["trainer_agent", "nutritionist_agent", "nutritionist_so
 class FitnessGraphState(TypedDict, total=False):
     request: MorningCheckInRequest
     db: Any
+    llm: LlmClient
     profile: UserProfile
     wearable: WearableSnapshot
     current_day: str

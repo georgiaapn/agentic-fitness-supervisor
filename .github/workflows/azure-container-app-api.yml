@@ -1,0 +1,65 @@
+name: Deploy Azure Container App API
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/api/**"
+      - ".github/workflows/azure-container-app-api.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}/agentic-fitness-api
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: apps/api
+          push: true
+          tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az containerapp secret set \
+              --name "${{ vars.AZURE_API_CONTAINER_APP_NAME }}" \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --secrets \
+                gemini-api-key="${{ secrets.GEMINI_API_KEY }}" \
+                demo-access-code="${{ secrets.DEMO_ACCESS_CODE }}"
+
+            az containerapp update \
+              --name "${{ vars.AZURE_API_CONTAINER_APP_NAME }}" \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --image "${{ env.IMAGE_NAME }}:${{ github.sha }}" \
+              --min-replicas 0 \
+              --max-replicas 1 \
+              --set-env-vars \
+                ENVIRONMENT=azure \
+                PERSISTENCE_ENABLED=false \
+                LLM_PROVIDER=gemini \
+                GEMINI_MODEL="${{ vars.GEMINI_MODEL }}" \
+                LLM_ACCESS_CONTROL_ENABLED=true \
+                CORS_ORIGINS="${{ vars.CORS_ORIGINS }}" \
+                GEMINI_API_KEY=secretref:gemini-api-key \
+                DEMO_ACCESS_CODE=secretref:demo-access-code
