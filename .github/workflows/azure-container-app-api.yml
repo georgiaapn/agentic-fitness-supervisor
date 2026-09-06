@@ -54,32 +54,50 @@ jobs:
           inlineScript: |
             az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
             az account show --query "{subscriptionId:id, tenantId:tenantId, name:name}" -o table
-            az extension add --name containerapp --upgrade
-            az containerapp show \
-              --name "${{ vars.AZURE_API_CONTAINER_APP_NAME }}" \
-              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-              --query "{name:name, resourceGroup:resourceGroup, location:location}" \
-              -o table
+            APP_URL="https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ vars.AZURE_RESOURCE_GROUP }}/providers/Microsoft.App/containerApps/${{ vars.AZURE_API_CONTAINER_APP_NAME }}?api-version=2024-03-01"
+            az rest --method get --url "$APP_URL" --query "{name:name, location:location}" -o table
 
-            az containerapp secret set \
-              --name "${{ vars.AZURE_API_CONTAINER_APP_NAME }}" \
-              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-              --secrets \
-                gemini-api-key="${{ secrets.GEMINI_API_KEY }}" \
-                demo-access-code="${{ secrets.DEMO_ACCESS_CODE }}"
+            python - <<'PY' > /tmp/api-containerapp-patch.json
+            import json
+            import os
 
-            az containerapp update \
-              --name "${{ vars.AZURE_API_CONTAINER_APP_NAME }}" \
-              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-              --image "${{ env.IMAGE_NAME }}:${{ github.sha }}" \
-              --min-replicas 0 \
-              --max-replicas 1 \
-              --set-env-vars \
-                ENVIRONMENT=azure \
-                PERSISTENCE_ENABLED=false \
-                LLM_PROVIDER=gemini \
-                GEMINI_MODEL="${{ vars.GEMINI_MODEL }}" \
-                LLM_ACCESS_CONTROL_ENABLED=true \
-                CORS_ORIGINS="${{ vars.CORS_ORIGINS }}" \
-                GEMINI_API_KEY=secretref:gemini-api-key \
-                DEMO_ACCESS_CODE=secretref:demo-access-code
+            body = {
+                "properties": {
+                    "configuration": {
+                        "secrets": [
+                            {"name": "gemini-api-key", "value": os.environ["GEMINI_API_KEY"]},
+                            {"name": "demo-access-code", "value": os.environ["DEMO_ACCESS_CODE"]},
+                        ]
+                    },
+                    "template": {
+                        "scale": {"minReplicas": 0, "maxReplicas": 1},
+                        "containers": [
+                            {
+                                "name": os.environ["AZURE_API_CONTAINER_APP_NAME"],
+                                "image": os.environ["API_IMAGE"],
+                                "env": [
+                                    {"name": "ENVIRONMENT", "value": "azure"},
+                                    {"name": "PERSISTENCE_ENABLED", "value": "false"},
+                                    {"name": "LLM_PROVIDER", "value": "gemini"},
+                                    {"name": "GEMINI_MODEL", "value": os.environ["GEMINI_MODEL"]},
+                                    {"name": "LLM_ACCESS_CONTROL_ENABLED", "value": "true"},
+                                    {"name": "CORS_ORIGINS", "value": os.environ["CORS_ORIGINS"]},
+                                    {"name": "GEMINI_API_KEY", "secretRef": "gemini-api-key"},
+                                    {"name": "DEMO_ACCESS_CODE", "secretRef": "demo-access-code"},
+                                ],
+                            }
+                        ],
+                    },
+                }
+            }
+            print(json.dumps(body))
+            PY
+
+            az rest --method patch --url "$APP_URL" --body @/tmp/api-containerapp-patch.json
+        env:
+          AZURE_API_CONTAINER_APP_NAME: ${{ vars.AZURE_API_CONTAINER_APP_NAME }}
+          API_IMAGE: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DEMO_ACCESS_CODE: ${{ secrets.DEMO_ACCESS_CODE }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
