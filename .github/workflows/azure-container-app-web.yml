@@ -53,19 +53,26 @@ jobs:
       - uses: azure/cli@v2
         with:
           inlineScript: |
+            set -euo pipefail
             AZURE_SUBSCRIPTION_ID="$(printf '%s' "$AZURE_SUBSCRIPTION_ID" | xargs)"
             AZURE_RESOURCE_GROUP="$(printf '%s' "$AZURE_RESOURCE_GROUP" | xargs)"
             AZURE_WEB_CONTAINER_APP_NAME="$(printf '%s' "$AZURE_WEB_CONTAINER_APP_NAME" | xargs)"
             NEXT_PUBLIC_API_URL="$(printf '%s' "$NEXT_PUBLIC_API_URL" | xargs)"
 
+            echo "Setting Azure subscription"
             az account set --subscription "$AZURE_SUBSCRIPTION_ID"
             az account show --query "{subscriptionId:id, tenantId:tenantId, name:name}" -o table
+            echo "Checking resource group"
+            az group show --name "$AZURE_RESOURCE_GROUP" --query "{name:name, location:location}" -o table
+            echo "Reading current Web Container App"
             az resource show \
               --resource-group "$AZURE_RESOURCE_GROUP" \
               --name "$AZURE_WEB_CONTAINER_APP_NAME" \
               --resource-type "Microsoft.App/containerApps" \
+              --api-version "2024-03-01" \
               --output json > /tmp/current-web-containerapp.json
 
+            echo "Rendering Web Container App ARM template"
             python - <<'PY' > /tmp/web-containerapp-template.json
             import json
             import os
@@ -115,6 +122,7 @@ jobs:
             print(json.dumps(deployment))
             PY
 
+            echo "Deploying Web Container App revision"
             az deployment group create \
               --resource-group "$AZURE_RESOURCE_GROUP" \
               --template-file /tmp/web-containerapp-template.json
