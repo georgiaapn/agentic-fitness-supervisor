@@ -42,6 +42,9 @@ jobs:
           test -n "${{ secrets.AZURE_CLIENT_SECRET }}" || (echo "Missing secret: AZURE_CLIENT_SECRET" && exit 1)
           test -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" || (echo "Missing secret: AZURE_SUBSCRIPTION_ID" && exit 1)
           test -n "${{ secrets.AZURE_TENANT_ID }}" || (echo "Missing secret: AZURE_TENANT_ID" && exit 1)
+          test -n "${{ vars.AZURE_RESOURCE_GROUP }}" || (echo "Missing variable: AZURE_RESOURCE_GROUP" && exit 1)
+          test -n "${{ vars.AZURE_WEB_CONTAINER_APP_NAME }}" || (echo "Missing variable: AZURE_WEB_CONTAINER_APP_NAME" && exit 1)
+          test -n "${{ vars.NEXT_PUBLIC_API_URL }}" || (echo "Missing variable: NEXT_PUBLIC_API_URL" && exit 1)
 
       - uses: azure/login@v3
         with:
@@ -52,10 +55,6 @@ jobs:
           inlineScript: |
             az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
             az account show --query "{subscriptionId:id, tenantId:tenantId, name:name}" -o table
-            az containerapp list \
-              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-              --query "[].{name:name, location:location}" \
-              -o table
 
             az containerapp update \
               --name "${{ vars.AZURE_WEB_CONTAINER_APP_NAME }}" \
