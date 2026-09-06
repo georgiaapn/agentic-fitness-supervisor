@@ -50,6 +50,13 @@ jobs:
       - uses: azure/cli@v2
         with:
           inlineScript: |
+            az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+            az account show --query "{subscriptionId:id, tenantId:tenantId, name:name}" -o table
+            az containerapp list \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --query "[].{name:name, location:location}" \
+              -o table
+
             az containerapp update \
               --name "${{ vars.AZURE_WEB_CONTAINER_APP_NAME }}" \
               --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
