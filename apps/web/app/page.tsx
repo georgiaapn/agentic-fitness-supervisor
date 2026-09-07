@@ -920,14 +920,14 @@ function AccessModeDialog({
           <div>
             <p className="font-data text-xs uppercase text-[#0E3B62]">LLM access</p>
             <h2 id="access-dialog-title" className="mt-1 font-display text-2xl font-semibold text-ink">
-              Looks like you found my portfolio project
+              Looks like you've stumbled upon my portfolio project!
             </h2>
             <p className="mt-3 text-sm leading-6 text-slate">
               To keep my server bills from exploding while still letting you poke around, this app starts in
               pre-cooked, hardcoded fallback mode. 
             </p>
             <p className="mt-3 text-sm leading-6 text-slate">
-              Want to unleash its full AI brain? Choose your path below.
+              Want to unleash its full AI brain? No problem! Bring your own Gemini 3.5 Lite key to unlock live generation.
             </p>
           </div>
         </div>
@@ -954,8 +954,7 @@ function AccessModeDialog({
             </div>
           </label>
           <p className="text-xs leading-5 text-slate">
-            Bring your own Gemini 3.5 Lite key to unlock live generation. Your key stays in this browser session and
-            never touches my database.
+            Your key stays in this browser session and never touches my database.
           </p>
         </div>
 
@@ -974,7 +973,7 @@ function AccessModeDialog({
             onClick={onContinueFallback}
             type="button"
           >
-            Stick to the Demo
+            Stick to the fallback mode
           </button>
           <button
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-[#1428FF] px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(20,40,255,0.28)] transition hover:-translate-y-0.5 hover:bg-[#0D1DBB] active:translate-y-0"
