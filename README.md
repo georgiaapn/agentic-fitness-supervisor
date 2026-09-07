@@ -77,7 +77,7 @@ The app supports three main user flows:
 | Database driver | psycopg 3 |
 | Local infrastructure | Docker Compose |
 | Cloud demo | Azure Container Apps Consumption for frontend and backend |
-| LLM cost control | Backend-only demo access code with deterministic fallback |
+| LLM cost control | Visitor-provided Gemini key with deterministic fallback |
 
 ## Architecture
 
@@ -338,7 +338,7 @@ http://localhost:8000/docs
 - Python 3.11+
 - Node.js 20+
 - Docker Desktop
-- Gemini API key for LLM generation
+- Gemini API key for optional local/server-owned LLM generation
 - PostgreSQL client tools are optional but useful
 - Enough disk space for the local Hugging Face model cache when generating
   embeddings
@@ -361,7 +361,6 @@ LLM_PROVIDER=gemini
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-3.5-flash-lite
 LLM_ACCESS_CONTROL_ENABLED=true
-DEMO_ACCESS_CODE=
 LLM_TIMEOUT_SECONDS=30
 EMBEDDING_MODEL=intfloat/multilingual-e5-small
 ENVIRONMENT=local
@@ -588,10 +587,10 @@ Self-reported check-in fields:
 The app does not rely on the LLM for every important decision.
 
 - Recovery scoring and safety constraints are deterministic.
-- Public cloud demo requests can run in deterministic fallback mode when no
-  valid demo access code is provided.
-- LLM-backed generation is gated in the backend through `DEMO_ACCESS_CODE`; the
-  key is never exposed as a frontend environment variable.
+- Public cloud demo requests run in deterministic fallback mode by default.
+- LLM-backed generation is unlocked only when a visitor provides their own
+  Gemini API key, which is sent per request as `X-Gemini-Api-Key` and is not
+  saved by the backend.
 - LLM responses must validate against Pydantic schemas.
 - If Gemini is unavailable, rate-limited, times out, or returns invalid JSON,
   deterministic fallback plans are returned.

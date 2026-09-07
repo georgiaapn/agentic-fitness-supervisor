@@ -9,8 +9,11 @@ import {
   ClipboardCheck,
   Download,
   Dumbbell,
+  Eye,
+  EyeOff,
   Gauge,
   HeartPulse,
+  KeyRound,
   Loader2,
   LogOut,
   Moon,
@@ -312,7 +315,10 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
-  const [demoAccessCode, setDemoAccessCode] = useState("");
+  const [geminiApiKey, setGeminiApiKey] = useState("");
+  const [geminiKeyDraft, setGeminiKeyDraft] = useState("");
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [accessDialogOpen, setAccessDialogOpen] = useState(false);
 
   useEffect(() => {
     let ignore = false;
@@ -352,17 +358,12 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    setDemoAccessCode(window.localStorage.getItem("athletiq-demo-access-code") ?? "");
+    const savedKey = window.sessionStorage.getItem("athletiq-user-gemini-api-key") ?? "";
+    const savedMode = window.sessionStorage.getItem("athletiq-access-mode");
+    setGeminiApiKey(savedKey);
+    setGeminiKeyDraft(savedKey);
+    setAccessDialogOpen(!savedMode && !savedKey);
   }, []);
-
-  useEffect(() => {
-    const trimmedCode = demoAccessCode.trim();
-    if (trimmedCode) {
-      window.localStorage.setItem("athletiq-demo-access-code", trimmedCode);
-      return;
-    }
-    window.localStorage.removeItem("athletiq-demo-access-code");
-  }, [demoAccessCode]);
 
   useEffect(() => {
     if (toast === null) return;
@@ -384,12 +385,43 @@ export default function Home() {
   const todayAdjustment = savedDailyAdjustments.find((adjustment) => adjustment.adjustment_date === todayDateKey);
   const hasTodayAdjustment = todayAdjustment !== undefined;
   const canRunCheckIn = hasWorkoutBaseline && hasNutritionBaseline && !hasTodayAdjustment;
+  const hasUserGeminiKey = geminiApiKey.trim().length > 0;
 
   function llmRequestHeaders(): Record<string, string> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    const trimmedCode = demoAccessCode.trim();
-    if (trimmedCode) headers["X-Demo-Code"] = trimmedCode;
+    const trimmedKey = geminiApiKey.trim();
+    if (trimmedKey) headers["X-Gemini-Api-Key"] = trimmedKey;
     return headers;
+  }
+
+  function continueWithFallback() {
+    setGeminiApiKey("");
+    setGeminiKeyDraft("");
+    window.sessionStorage.removeItem("athletiq-user-gemini-api-key");
+    window.sessionStorage.setItem("athletiq-access-mode", "fallback");
+    setAccessDialogOpen(false);
+    setToast({ tone: "info", message: "Fallback mode is active. Plans will be generated without LLM calls." });
+  }
+
+  function activateUserGeminiKey() {
+    const trimmedKey = geminiKeyDraft.trim();
+    if (!trimmedKey) {
+      setToast({ tone: "error", message: "Add a Gemini API key or continue with fallback mode." });
+      return;
+    }
+    setGeminiApiKey(trimmedKey);
+    window.sessionStorage.setItem("athletiq-user-gemini-api-key", trimmedKey);
+    window.sessionStorage.setItem("athletiq-access-mode", "user-key");
+    setAccessDialogOpen(false);
+    setToast({ tone: "success", message: "Gemini key active for this browser session." });
+  }
+
+  function clearUserGeminiKey() {
+    setGeminiApiKey("");
+    setGeminiKeyDraft("");
+    window.sessionStorage.removeItem("athletiq-user-gemini-api-key");
+    window.sessionStorage.setItem("athletiq-access-mode", "fallback");
+    setToast({ tone: "info", message: "Gemini key removed. Fallback mode is active." });
   }
 
   async function generateWorkoutPlan() {
@@ -598,6 +630,17 @@ export default function Home() {
           athlet<span className="transition group-hover:text-[#1428FF]">IQ</span>
         </button>
         <div className="flex flex-wrap justify-end gap-2">
+          <button
+            className="inline-flex min-h-9 items-center gap-2 rounded-control bg-white/85 px-4 py-2 text-sm font-medium text-ink shadow-[0_10px_24px_rgba(6,26,46,0.12)] backdrop-blur transition hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_14px_28px_rgba(6,26,46,0.16)] active:translate-y-0"
+            onClick={() => {
+              setGeminiKeyDraft(geminiApiKey);
+              setAccessDialogOpen(true);
+            }}
+            type="button"
+          >
+            <KeyRound size={16} aria-hidden="true" />
+            {hasUserGeminiKey ? "AI unlocked" : "AI key"}
+          </button>
           {savedPlans.length > 0 || savedDailyAdjustments.length > 0 ? (
             <button
               className="inline-flex min-h-9 items-center gap-2 rounded-control bg-white/85 px-4 py-2 text-sm font-medium text-ink shadow-[0_10px_24px_rgba(6,26,46,0.12)] backdrop-blur transition hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_14px_28px_rgba(6,26,46,0.16)] active:translate-y-0"
@@ -682,6 +725,19 @@ export default function Home() {
 
       {toast ? <ToastNotice toast={toast} onDismiss={() => setToast(null)} /> : null}
 
+      {accessDialogOpen ? (
+        <AccessModeDialog
+          geminiKeyDraft={geminiKeyDraft}
+          hasUserGeminiKey={hasUserGeminiKey}
+          showGeminiKey={showGeminiKey}
+          onActivateUserKey={activateUserGeminiKey}
+          onChangeGeminiKey={setGeminiKeyDraft}
+          onClearUserKey={clearUserGeminiKey}
+          onContinueFallback={continueWithFallback}
+          onShowGeminiKeyChange={setShowGeminiKey}
+        />
+      ) : null}
+
       {error ? (
         <div className="relative z-10 mx-auto mt-8 max-w-3xl rounded-control border border-recovery bg-[#FFF4F0] px-4 py-3 text-sm text-recovery shadow-[0_18px_40px_rgba(6,26,46,0.14)]">
           {error}
@@ -718,9 +774,7 @@ export default function Home() {
                 profile={profile}
                 profileError={profileError}
                 profileState={profileState}
-                demoAccessCode={demoAccessCode}
                 onChange={setProfile}
-                onDemoAccessCodeChange={setDemoAccessCode}
                 onSubmit={saveProfile}
               />
             ) : null}
@@ -829,6 +883,107 @@ export default function Home() {
         </div>
       ) : null}
     </main>
+  );
+}
+
+function AccessModeDialog({
+  geminiKeyDraft,
+  hasUserGeminiKey,
+  showGeminiKey,
+  onActivateUserKey,
+  onChangeGeminiKey,
+  onClearUserKey,
+  onContinueFallback,
+  onShowGeminiKeyChange
+}: {
+  geminiKeyDraft: string;
+  hasUserGeminiKey: boolean;
+  showGeminiKey: boolean;
+  onActivateUserKey: () => void;
+  onChangeGeminiKey: (value: string) => void;
+  onClearUserKey: () => void;
+  onContinueFallback: () => void;
+  onShowGeminiKeyChange: (value: boolean) => void;
+}) {
+  return (
+    <div
+      aria-labelledby="access-dialog-title"
+      aria-modal="true"
+      className="fixed inset-0 z-[60] grid place-items-center bg-[#061A2E]/68 px-4 py-8 backdrop-blur-md"
+      role="dialog"
+    >
+      <section className="modal-pop w-full max-w-2xl rounded-[28px] border-[3px] border-[#17202A] bg-gradient-to-br from-[#F5FDFF]/96 via-white/96 to-[#D7F5FF]/96 p-6 shadow-[0_34px_90px_rgba(6,26,46,0.34)]">
+        <div className="flex items-start gap-4">
+          <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-control bg-[#1428FF] text-white shadow-[0_14px_30px_rgba(20,40,255,0.26)]">
+            <KeyRound size={22} aria-hidden="true" />
+          </span>
+          <div>
+            <p className="font-data text-xs uppercase text-[#0E3B62]">LLM access</p>
+            <h2 id="access-dialog-title" className="mt-1 font-display text-2xl font-semibold text-ink">
+              Choose how this demo should generate plans
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate">
+              This public Azure demo starts in fallback mode, so the workout, nutrition, and check-in flows remain
+              usable without spending any owner-side LLM tokens. Add your own Gemini API key to unlock live Gemini
+              generation for this browser session.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-3">
+          <label className="block text-sm font-medium text-ink">
+            Gemini API key
+            <div className="mt-1 flex overflow-hidden rounded-control border border-[#17202A]/20 bg-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] transition focus-within:border-[#1428FF]">
+              <input
+                className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm text-ink outline-none"
+                placeholder="AIza..."
+                type={showGeminiKey ? "text" : "password"}
+                value={geminiKeyDraft}
+                onChange={(event) => onChangeGeminiKey(event.target.value)}
+              />
+              <button
+                aria-label={showGeminiKey ? "Hide Gemini API key" : "Show Gemini API key"}
+                className="inline-flex h-10 w-10 items-center justify-center border-l border-[#17202A]/10 text-slate transition hover:bg-[#EFF5FF] hover:text-[#1428FF]"
+                onClick={() => onShowGeminiKeyChange(!showGeminiKey)}
+                type="button"
+              >
+                {showGeminiKey ? <EyeOff size={17} aria-hidden="true" /> : <Eye size={17} aria-hidden="true" />}
+              </button>
+            </div>
+          </label>
+          <p className="text-xs leading-5 text-slate">
+            The key is sent to the backend only for generation requests and is not saved by the server.
+          </p>
+        </div>
+
+        <div className="mt-6 flex flex-wrap justify-end gap-3">
+          {hasUserGeminiKey ? (
+            <button
+              className="inline-flex min-h-11 items-center justify-center rounded-control border border-recovery/35 bg-white/60 px-5 py-2 text-sm font-semibold text-recovery transition hover:-translate-y-0.5 hover:bg-[#FFF4F0] active:translate-y-0"
+              onClick={onClearUserKey}
+              type="button"
+            >
+              Remove key
+            </button>
+          ) : null}
+          <button
+            className="inline-flex min-h-11 items-center justify-center rounded-control border border-[#17202A]/20 bg-white/75 px-5 py-2 text-sm font-semibold text-ink shadow-[0_10px_22px_rgba(6,26,46,0.1)] transition hover:-translate-y-0.5 hover:bg-white active:translate-y-0"
+            onClick={onContinueFallback}
+            type="button"
+          >
+            Continue with fallback
+          </button>
+          <button
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-[#1428FF] px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(20,40,255,0.28)] transition hover:-translate-y-0.5 hover:bg-[#0D1DBB] active:translate-y-0"
+            onClick={onActivateUserKey}
+            type="button"
+          >
+            <KeyRound size={17} aria-hidden="true" />
+            Unlock with Gemini
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -1464,17 +1619,13 @@ function ProfileForm({
   profile,
   profileState,
   profileError,
-  demoAccessCode,
   onChange,
-  onDemoAccessCodeChange,
   onSubmit
 }: {
   profile: UserProfile;
   profileState: string;
   profileError: string | null;
-  demoAccessCode: string;
   onChange: (profile: UserProfile) => void;
-  onDemoAccessCodeChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
@@ -1549,16 +1700,6 @@ function ProfileForm({
           onChange={(value) => onChange({ ...profile, injury_history: splitCsv(value) })}
         />
       </div>
-      <label className="block text-sm font-medium text-ink md:col-span-2">
-        LLM demo access code
-        <input
-          className="mt-1 w-full rounded-control border border-[#17202A]/20 bg-white/70 px-3 py-2 text-sm text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] transition focus:border-[#1428FF]"
-          placeholder="Leave empty for cost-safe fallback mode"
-          type="password"
-          value={demoAccessCode}
-          onChange={(event) => onDemoAccessCodeChange(event.target.value)}
-        />
-      </label>
       {profileError ? (
         <p className="rounded-control border border-recovery bg-[#FFF4F0] px-3 py-2 text-sm text-recovery md:col-span-2">
           {profileError}

@@ -64,12 +64,6 @@ jobs:
             az account show --query "{subscriptionId:id, tenantId:tenantId, name:name}" -o table
             echo "Updating API Container App through containerapp CLI"
             az extension add --name containerapp --upgrade --allow-preview true
-            az containerapp secret set \
-              --name "$AZURE_API_CONTAINER_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --secrets \
-                gemini-api-key="$GEMINI_API_KEY" \
-                demo-access-code="$DEMO_ACCESS_CODE"
             az containerapp update \
               --name "$AZURE_API_CONTAINER_APP_NAME" \
               --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -82,15 +76,11 @@ jobs:
                 LLM_PROVIDER=gemini \
                 GEMINI_MODEL="$GEMINI_MODEL" \
                 LLM_ACCESS_CONTROL_ENABLED=true \
-                CORS_ORIGINS="$CORS_ORIGINS" \
-                GEMINI_API_KEY=secretref:gemini-api-key \
-                DEMO_ACCESS_CODE=secretref:demo-access-code
+                CORS_ORIGINS="$CORS_ORIGINS"
         env:
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
           AZURE_API_CONTAINER_APP_NAME: ${{ vars.AZURE_API_CONTAINER_APP_NAME }}
           API_IMAGE: ${{ env.IMAGE_NAME }}:${{ github.sha }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          DEMO_ACCESS_CODE: ${{ secrets.DEMO_ACCESS_CODE }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}

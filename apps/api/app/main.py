@@ -37,7 +37,7 @@ from app.services.daily_adjustments import (
 )
 from app.services.profiles import get_profile, upsert_profile
 from app.services.saved_plans import delete_saved_generated_plan, list_saved_generated_plans, upsert_saved_generated_plan
-from app.services.llm import LlmClient, get_llm_client
+from app.services.llm import GeminiLlmClient, LlmClient, get_llm_client
 from app.services.rag import RagService
 from app.services.wearable_data import WearableDataService
 from app.workflow.graph import run_morning_check_in
@@ -73,11 +73,7 @@ app.add_middleware(
 @app.get("/health")
 def health() -> dict[str, str]:
     llm = get_llm_client()
-    llm_access = "open"
-    if settings.llm_access_control_enabled and settings.demo_access_code:
-        llm_access = "demo-code-protected"
-    elif settings.llm_access_control_enabled and settings.environment != "local":
-        llm_access = "fallback-only"
+    llm_access = "user-key-required" if settings.llm_access_control_enabled else "server-key-open"
 
     return {
         "status": "ok",
@@ -89,25 +85,17 @@ def health() -> dict[str, str]:
 
 
 def get_cost_safe_llm_client(
-    x_demo_code: Annotated[str | None, Header(alias="X-Demo-Code")] = None,
+    x_gemini_api_key: Annotated[str | None, Header(alias="X-Gemini-Api-Key")] = None,
 ) -> LlmClient:
     if not settings.llm_access_control_enabled:
         return get_llm_client()
 
-    configured_code = settings.demo_access_code.strip()
-    provided_code = (x_demo_code or "").strip()
+    provided_gemini_key = (x_gemini_api_key or "").strip()
+    if provided_gemini_key:
+        return GeminiLlmClient(provided_gemini_key, settings.gemini_model)
 
-    if configured_code:
-        if provided_code == configured_code:
-            return get_llm_client()
-        logger.info("LLM disabled for request: missing or invalid demo access code.")
-        return LlmClient()
-
-    if settings.environment.lower() != "local":
-        logger.info("LLM disabled for request: DEMO_ACCESS_CODE is not configured outside local mode.")
-        return LlmClient()
-
-    return get_llm_client()
+    logger.info("LLM disabled for request: user Gemini API key was not provided.")
+    return LlmClient()
 
 
 @app.post("/api/check-ins/simulate", response_model=DailyBriefingResponse)
