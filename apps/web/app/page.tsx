@@ -400,7 +400,7 @@ export default function Home() {
     window.sessionStorage.removeItem("athletiq-user-gemini-api-key");
     window.sessionStorage.setItem("athletiq-access-mode", "fallback");
     setAccessDialogOpen(false);
-    setToast({ tone: "info", message: "Fallback mode is active. Plans will be generated without LLM calls." });
+    setToast({ tone: "info", message: "Demo mode is active. Plans will use pre-cooked fallback responses." });
   }
 
   function activateUserGeminiKey() {
@@ -920,12 +920,14 @@ function AccessModeDialog({
           <div>
             <p className="font-data text-xs uppercase text-[#0E3B62]">LLM access</p>
             <h2 id="access-dialog-title" className="mt-1 font-display text-2xl font-semibold text-ink">
-              Choose how this demo should generate plans
+              Looks like you found my portfolio project
             </h2>
             <p className="mt-3 text-sm leading-6 text-slate">
-              This public Azure demo starts in fallback mode, so the workout, nutrition, and check-in flows remain
-              usable without spending any owner-side LLM tokens. Add your own Gemini API key to unlock live Gemini
-              generation for this browser session.
+              To keep my server bills from exploding while still letting you poke around, this app starts in
+              pre-cooked, hardcoded fallback mode. 
+            </p>
+            <p className="mt-3 text-sm leading-6 text-slate">
+              Want to unleash its full AI brain? Choose your path below.
             </p>
           </div>
         </div>
@@ -952,7 +954,8 @@ function AccessModeDialog({
             </div>
           </label>
           <p className="text-xs leading-5 text-slate">
-            The key is sent to the backend only for generation requests and is not saved by the server.
+            Bring your own Gemini 3.5 Lite key to unlock live generation. Your key stays in this browser session and
+            never touches my database.
           </p>
         </div>
 
@@ -971,7 +974,7 @@ function AccessModeDialog({
             onClick={onContinueFallback}
             type="button"
           >
-            Continue with fallback
+            Stick to the Demo
           </button>
           <button
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-[#1428FF] px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(20,40,255,0.28)] transition hover:-translate-y-0.5 hover:bg-[#0D1DBB] active:translate-y-0"
@@ -979,7 +982,7 @@ function AccessModeDialog({
             type="button"
           >
             <KeyRound size={17} aria-hidden="true" />
-            Unlock with Gemini
+            Bring Your Own Key
           </button>
         </div>
       </section>
