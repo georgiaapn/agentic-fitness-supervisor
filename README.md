@@ -25,7 +25,7 @@ small specialist team:
 could add authentication while preserving the current `user_id` ownership model.
 
 ## 🎬 Demo
-
+[![athletIQ Demo](https://github.com/user-attachments/assets/2afac2a2-3086-4d3f-aa95-b9186ff24b1c)](https://1drv.ms/v/c/20fe3aee5b9a4c5b/IQDoZzimQJT4RYEu5BRtJ_7GAbyqqqLoIXqcu3gHStsYsIs?e=WKTYGX)
 
 
 
