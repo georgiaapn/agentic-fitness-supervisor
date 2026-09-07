@@ -2,6 +2,37 @@
 .env.*
 !.env.example
 !.env.local.example
+
+# Secret material and local provider state.
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.crt
+*.cer
+*.csr
+id_rsa*
+id_ed25519*
+service-account*.json
+*service_account*.json
+credentials.json
+client_secret*.json
+.azure/
+.aws/
+.gcloud/
+.config/gcloud/
+
+# Local databases, exports, backups, and logs that may contain user data.
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.backup
+*.bak
+*.sql
+*.log
+logs/
 node_modules/
 npm-cache/
 .next/
