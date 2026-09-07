@@ -40,10 +40,24 @@ jobs:
           test -n "${{ secrets.AZURE_CLIENT_SECRET }}" || (echo "Missing secret: AZURE_CLIENT_SECRET" && exit 1)
           test -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" || (echo "Missing secret: AZURE_SUBSCRIPTION_ID" && exit 1)
           test -n "${{ secrets.AZURE_TENANT_ID }}" || (echo "Missing secret: AZURE_TENANT_ID" && exit 1)
+          test -n "${{ secrets.DATABASE_URL }}" || (echo "Missing secret: DATABASE_URL" && exit 1)
           test -n "${{ vars.AZURE_RESOURCE_GROUP }}" || (echo "Missing variable: AZURE_RESOURCE_GROUP" && exit 1)
           test -n "${{ vars.AZURE_API_CONTAINER_APP_NAME }}" || (echo "Missing variable: AZURE_API_CONTAINER_APP_NAME" && exit 1)
           test -n "${{ vars.GEMINI_MODEL }}" || (echo "Missing variable: GEMINI_MODEL" && exit 1)
           test -n "${{ vars.CORS_ORIGINS }}" || (echo "Missing variable: CORS_ORIGINS" && exit 1)
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run Aiven database migrations
+        working-directory: apps/api
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          alembic upgrade head
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - uses: azure/login@v3
         with:
@@ -64,6 +78,10 @@ jobs:
             az account show --query "{subscriptionId:id, tenantId:tenantId, name:name}" -o table
             echo "Updating API Container App through containerapp CLI"
             az extension add --name containerapp --upgrade --allow-preview true
+            az containerapp secret set \
+              --name "$AZURE_API_CONTAINER_APP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --secrets database-url="$DATABASE_URL"
             az containerapp update \
               --name "$AZURE_API_CONTAINER_APP_NAME" \
               --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -72,7 +90,8 @@ jobs:
               --max-replicas 1 \
               --set-env-vars \
                 ENVIRONMENT=azure \
-                PERSISTENCE_ENABLED=false \
+                PERSISTENCE_ENABLED=true \
+                DATABASE_URL=secretref:database-url \
                 LLM_PROVIDER=gemini \
                 GEMINI_MODEL="$GEMINI_MODEL" \
                 LLM_ACCESS_CONTROL_ENABLED=true \
@@ -82,5 +101,6 @@ jobs:
           AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
           AZURE_API_CONTAINER_APP_NAME: ${{ vars.AZURE_API_CONTAINER_APP_NAME }}
           API_IMAGE: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
